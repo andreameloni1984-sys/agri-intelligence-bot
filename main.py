@@ -17,9 +17,7 @@ def collect():
         parse_ovicaprini()
         + parse_lattiero_caseari()
     )
-
     grants = fetch_bandi()
-
     return prices, grants
 
 
@@ -34,17 +32,17 @@ async def send_telegram(message):
 
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-    await bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=message,
-    )
+    async with bot:
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
+        )
 
 
 def main():
     init_db()
 
     prices, grants = collect()
-
     message = report(prices, grants)
 
     print(message)
