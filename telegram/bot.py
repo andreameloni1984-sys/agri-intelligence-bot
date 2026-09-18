@@ -1,7 +1,8 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+import asyncio
 
-from config import TELEGRAM_BOT_TOKEN
+from telegram import Bot
+
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from database import init_db
 from sources.ismea_market import (
     parse_ovicaprini,
@@ -12,112 +13,44 @@ from engines.intelligence import report
 
 
 def collect():
-    prices = parse_ovicaprini() + parse_lattiero_caseari()
+    prices = (
+        parse_ovicaprini()
+        + parse_lattiero_caseari()
+    )
+
     grants = fetch_bandi()
+
     return prices, grants
 
 
-async def cmd_report(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    try:
-        prices, grants = collect()
-        await update.message.reply_text(
-            report(prices, grants)
-        )
-    except Exception as e:
-        await update.message.reply_text(
-            f"⚠️ Errore raccolta dati: {e}"
-        )
+async def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN:
+        print("⚠️ TELEGRAM_BOT_TOKEN non configurato")
+        return
 
+    if not TELEGRAM_CHAT_ID:
+        print("⚠️ TELEGRAM_CHAT_ID non configurato")
+        return
 
-async def cmd_prezzi(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    try:
-        prices, _ = collect()
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-        lines = ["💰 PREZZI OVINO — ISMEA"]
-
-        for x in prices[:15]:
-            ch = x.get("weekly_change")
-            chs = (
-                f"{ch:+.1f}%"
-                if ch is not None
-                else "n/d"
-            )
-
-            lines.append(
-                f"{x['market']} | "
-                f"{x['product'][:38]} | "
-                f"{x['price']:.2f} {x['unit']} | "
-                f"{chs}"
-            )
-
-        await update.message.reply_text(
-            "\n".join(lines)
-        )
-
-    except Exception as e:
-        await update.message.reply_text(
-            f"⚠️ {e}"
-        )
-
-
-async def cmd_bandi(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    try:
-        grants = fetch_bandi()
-
-        lines = ["🏛️ BANDI SARDEGNA"]
-
-        for x in grants[:15]:
-            lines.append(
-                f"• {x['title']}\n{x['url']}"
-            )
-
-        await update.message.reply_text(
-            "\n".join(lines)[:3900]
-        )
-
-    except Exception as e:
-        await update.message.reply_text(
-            f"⚠️ {e}"
+    async with bot:
+        await bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
         )
 
 
 def main():
-    if not TELEGRAM_BOT_TOKEN:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN non configurato"
-        )
-
     init_db()
 
-    app = (
-        Application
-        .builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .build()
-    )
+    prices, grants = collect()
 
-    app.add_handler(
-        CommandHandler("report", cmd_report)
-    )
+    message = report(prices, grants)
 
-    app.add_handler(
-        CommandHandler("prezzi", cmd_prezzi)
-    )
+    print(message)
 
-    app.add_handler(
-        CommandHandler("bandi", cmd_bandi)
-    )
-
-    app.run_polling()
+    asyncio.run(send_telegram(message))
 
 
 if __name__ == "__main__":
