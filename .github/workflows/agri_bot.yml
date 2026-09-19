@@ -1,4 +1,4 @@
-lname: Agri Intelligence
+name: Agri Intelligence
 
 on:
   workflow_dispatch:
