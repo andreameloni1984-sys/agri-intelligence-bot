@@ -25,3 +25,11 @@ def init_db():
     for sql in ["CREATE INDEX IF NOT EXISTS idx_animals_status ON animals(status)","CREATE INDEX IF NOT EXISTS idx_milk_date ON milk_production(production_date)","CREATE INDEX IF NOT EXISTS idx_feed_date ON feed_consumption(consumption_date)","CREATE INDEX IF NOT EXISTS idx_fuel_date ON fuel_consumption(consumption_date)","CREATE INDEX IF NOT EXISTS idx_financial_date ON financial_transactions(transaction_date)"]:
         cur.execute(sql)
     con.commit(); con.close()
+
+
+def execute(sql, params=()):
+    con=connect(); cur=con.cursor(); cur.execute(sql, params); con.commit(); last=cur.lastrowid; con.close(); return last
+
+def today():
+    from datetime import date
+    return date.today().isoformat()
