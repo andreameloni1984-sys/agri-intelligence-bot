@@ -12,23 +12,32 @@ permissions:
 
 jobs:
   daily-report:
+    if: ${{ github.event_name != 'workflow_dispatch' || vars.TELEGRAM_SERVICE_MODE != '1' }}
     runs-on: ubuntu-latest
-
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python main.py
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run agricultural report
+  telegram-service:
+    if: ${{ vars.TELEGRAM_SERVICE_MODE == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_MODE: bot
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Start Telegram service
         run: python main.py
