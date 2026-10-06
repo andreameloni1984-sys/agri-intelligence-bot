@@ -25,6 +25,48 @@ def _num(text):
     m=re.search(r'(-?\d+(?:[\.,]\d+)?)', text)
     return float(m.group(1).replace(',','.')) if m else None
 
+def natural_entry(text):
+    import re
+    t=text.lower().replace(',', '.').strip()
+    def num(pattern):
+        m=re.search(pattern,t)
+        return float(m.group(1)) if m else None
+    n=num(r'(\d+(?:\.\d+)?)\s*(?:litri|l)\\b')
+    if n is not None and 'latte' in t:
+        execute("INSERT INTO milk_production (production_date,liters) VALUES (?,?)",(today(),n))
+        if 'pagato' in t or 'prezzo' in t:
+            pass
+        return f'🍼 Registrati {n:.1f} L di latte.'
+    n=num(r'(\d+(?:\.\d+)?)\s*(?:kg|chili)\\b')
+    if n is not None and any(k in t for k in ('fieno','mangime','foraggio')):
+        execute("INSERT INTO feed_consumption (consumption_date,feed_type,quantity_kg) VALUES (?,?,?)",(today(),'fieno/mangime',n))
+        return f'🌾 Registrati {n:.1f} kg di fieno/mangime.'
+    n=num(r'(\d+(?:\.\d+)?)\s*(?:euro|€)\\b')
+    if n is not None and 'gasolio' in t and ('a ' in t or 'prezzo' in t):
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'prezzo_gasolio',n,'€/L'))
+        return f'⛽ Registrato prezzo gasolio: €{n:.2f}/L.'
+    n=num(r'(\d+(?:\.\d+)?)\s*(?:euro|€)\\b')
+    if n is not None and 'latte' in t and ('pagato' in t or 'prezzo' in t):
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'prezzo_latte',n,'€/L'))
+        return f'🥛 Registrato prezzo latte: €{n:.2f}/L.'
+    n=num(r'(\d+(?:\.\d+)?)\s+pecore\\b')
+    if n is not None and 'vendut' not in t:
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'pecore_presenti',n,'capi'))
+        return f'🐑 Registrate {n:.0f} pecore presenti.'
+    n=num(r'(\d+(?:\.\d+)?)\s+(?:agnelle|agnelli)\\b')
+    if n is not None and 'vendut' not in t:
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'agnelli_presenti',n,'capi'))
+        return f'🐑 Registrati {n:.0f} agnelli/agnelle.'
+    n=num(r'(\d+(?:\.\d+)?)\s+(?:agnelle|agnelli)\\b')
+    if n is not None and 'vendut' in t:
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'agnelli_venduti',n,'capi'))
+        return f'💰 Registrati {n:.0f} agnelli venduti.'
+    n=num(r'(\d+(?:\.\d+)?)\s+pecore\\b')
+    if n is not None and 'vendut' in t:
+        execute("INSERT INTO daily_metrics (metric_date,metric,value,unit) VALUES (?,?,?,?)",(today(),'pecore_vendute',n,'capi'))
+        return f'💰 Registrate {n:.0f} pecore vendute.'
+    return None
+
 def handle_command(text):
     parts=text.strip().split(maxsplit=3)
     if not parts: return HELP
@@ -134,6 +176,11 @@ def run_bot():
 
     async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=update.message.text or ''
+        if not text.startswith('/') and not context.user_data.get('waiting_for'):
+            natural=natural_entry(text)
+            if natural:
+                await update.message.reply_text(natural+'\n\n📋 Puoi continuare a inserire altri dati.', reply_markup=menu())
+                return
         waiting=context.user_data.get('waiting_for')
         if waiting=='latte' and not text.startswith('/'):
             reply=handle_command('/latte '+text)
