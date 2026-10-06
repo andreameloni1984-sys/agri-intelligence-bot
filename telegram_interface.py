@@ -86,18 +86,83 @@ def handle_command(text):
     return '❓ Comando non riconosciuto. Usa /aiuto.'
 
 def run_bot():
-    from telegram import Bot
-    from telegram.ext import Application, CommandHandler, MessageHandler, filters
+    from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+    from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
     import asyncio
     from config import TELEGRAM_BOT_TOKEN
-    if not TELEGRAM_BOT_TOKEN: raise RuntimeError('TELEGRAM_BOT_TOKEN non configurato')
-    async def reply(update, context):
-        if not update.message: return
-        await update.message.reply_text(handle_command(update.message.text or ''))
+
+    if not TELEGRAM_BOT_TOKEN:
+        raise RuntimeError('TELEGRAM_BOT_TOKEN non configurato')
+
+    def menu():
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton('🍼 Latte', callback_data='latte'),
+             InlineKeyboardButton('🌾 Mangime/Fieno', callback_data='feed')],
+            [InlineKeyboardButton('🐑 Animale', callback_data='animal'),
+             InlineKeyboardButton('💰 Spesa/Ricavo', callback_data='money')],
+            [InlineKeyboardButton('⛽ Gasolio', callback_data='fuel'),
+             InlineKeyboardButton('📊 Oggi', callback_data='today')],
+            [InlineKeyboardButton('📋 Aiuto', callback_data='help')]
+        ])
+
+    async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(
+            '🐑 AGRI INTELLIGENCE\\n\\nCosa vuoi registrare?',
+            reply_markup=menu()
+        )
+
+    async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        q=update.callback_query
+        await q.answer()
+        prompts={
+            'latte':'🍼 Scrivi quanti litri di latte hai prodotto.\\nEsempio: 126 litri',
+            'feed':'🌾 Scrivi quanti kg di mangime/fieno hai usato.\\nEsempio: 90 kg fieno',
+            'fuel':'⛽ Scrivi quanti litri di gasolio hai consumato.\\nEsempio: 30 litri',
+            'animal':'🐑 Scrivi cosa è successo.\\nEsempio: nato 342\\nOppure: morto 342\\nOppure: venduto 342 250',
+            'money':'💰 Scrivi spesa o ricavo.\\nEsempio: spesa mangime 85 fieno\\nOppure: ricavo latte 150',
+            'today':'📊 Sto preparando il riepilogo...',
+            'help':HELP
+        }
+        if q.data=='today':
+            from engines.intelligence import farm_snapshot
+            x=farm_snapshot()
+            msg=(f"🐑 AZIENDA OGGI\\n• Animali: {x['present']}\\n• Latte: {x['milk']:.1f} L\\n• Mangime/fieno: {x['feed']:.1f} kg\\n• Gasolio: {x['fuel']:.1f} L\\n• Terreni: {x['ha']:.2f} ha\\n• Ricavi: €{x['income']:.2f}\\n• Spese: €{x['expense']:.2f}\\n• Saldo: €{x['income']-x['expense']:.2f}")
+            await q.edit_message_text(msg, reply_markup=menu())
+        else:
+            context.user_data['waiting_for']=q.data
+            await q.edit_message_text(prompts[q.data], reply_markup=menu())
+
+    async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text=update.message.text or ''
+        waiting=context.user_data.get('waiting_for')
+        if waiting=='latte' and not text.startswith('/'):
+            reply=handle_command('/latte '+text)
+        elif waiting=='feed' and not text.startswith('/'):
+            reply=handle_command('/mangime '+text)
+        elif waiting=='fuel' and not text.startswith('/'):
+            reply=handle_command('/gasolio '+text)
+        elif waiting=='animal' and not text.startswith('/'):
+            t=text.lower()
+            if t.startswith('nato '): reply=handle_command('/nato '+text[5:])
+            elif t.startswith('morto '): reply=handle_command('/morto '+text[6:])
+            elif t.startswith('venduto '): reply=handle_command('/venduto '+text[8:])
+            else: reply='Scrivi: nato TAG, morto TAG oppure venduto TAG PREZZO.'
+        elif waiting=='money' and not text.startswith('/'):
+            reply=handle_command('/'+text)
+        else:
+            reply=handle_command(text)
+        context.user_data.pop('waiting_for',None)
+        await update.message.reply_text(reply, reply_markup=menu())
+
     async def main():
         app=Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        app.add_handler(CommandHandler(['start','aiuto','help','oggi','latte','mangime','gasolio','nato','venduto','morto','spesa','ricavo','animali'], reply))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply))
-        await app.initialize(); await app.start(); await app.updater.start_polling()
+        app.add_handler(CommandHandler('start', start))
+        app.add_handler(CommandHandler(['aiuto','help','oggi','latte','mangime','gasolio','nato','venduto','morto','spesa','ricavo','animali'], lambda u,c: text_message(u,c)))
+        app.add_handler(CallbackQueryHandler(button))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
         await asyncio.Event().wait()
+
     asyncio.run(main())
