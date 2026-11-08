@@ -29,21 +29,16 @@ Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPU
 
 These are Yahoo Finance continuous futures symbols, not broker-specific CFDs or exchange-expiry contracts. Yahoo data is unofficial and may be delayed, unavailable or mapped differently. No broker feed is connected.
 
-## Telegram
+## Telegram alerts
 
-Add the following as **GitHub repository → Settings → Secrets and variables → Actions → New repository secret**:
+Add these GitHub repository secrets under **Settings → Secrets and variables → Actions**:
 
 - `TELEGRAM_BOT_TOKEN`: token from BotFather.
-- `TELEGRAM_CHAT_ID`: the private chat or group ID authorized to receive alerts and issue commands.
+- `TELEGRAM_CHAT_ID`: the private chat or group that should receive alerts.
 
-Never paste tokens into source code or chat. ORACLE only processes commands from the configured chat ID.
+Never paste tokens into source code or chat. At the start of every automatic scan, ORACLE validates that the token and destination are usable. It does not send a test message.
 
-Commands:
-- `/start` or `/help` — command guide.
-- `/status` — last scan time, number of news items and markets checked.
-- `/report` — latest directional hypotheses with reference, stop and targets.
-- `/prezzi` — latest saved quotes and timestamps.
-- `/calendario` — next scheduled economic events.\n\n**Alerts are automatic:** GitHub Actions starts the ORACLE scan every five minutes. When a new directional hypothesis passes the checks, ORACLE sends a Telegram message directly using `sendMessage`; you do not need to write `/start` or any command. The workflow restores a small SQLite journal between runs to avoid repeating the same catalyst alert. If Telegram rejects an alert or credentials are unavailable, the unsent signal is not marked as delivered and can be retried on the next scan. GitHub scheduled jobs can start a few minutes late at busy times; this is an automatic scan, not a guaranteed real-time feed.
+**Alerts are automatic:** GitHub Actions starts the ORACLE scan every five minutes. When a new directional hypothesis passes the checks, ORACLE sends a Telegram message directly using `sendMessage`; you do not need to write `/start` or any command. The workflow restores a small SQLite journal between runs to avoid repeating the same catalyst alert. If Telegram rejects an alert, the unsent signal is not marked as delivered and can be retried on the next scan. GitHub scheduled jobs can start a few minutes late at busy times; this is automatic scanning, not a guaranteed real-time feed.
 
 ## Economic calendar coverage
 
