@@ -28,6 +28,7 @@ def env_bool(name: str, default: bool) -> bool:
 
 DEFAULT_RSS_URLS = [
     "https://www.whitehouse.gov/feed/",
+    "https://www.trumpstruth.org/feed",
     "https://www.federalreserve.gov/feeds/press_all.xml",
     "https://www.bls.gov/feed/bls_latest.rss",
     "https://www.eia.gov/rss/press_rss.xml",
