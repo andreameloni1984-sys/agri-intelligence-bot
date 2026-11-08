@@ -1,1 +1,0 @@
-# Source adapters for institutional market/grant data.

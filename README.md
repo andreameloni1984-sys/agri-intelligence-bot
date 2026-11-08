@@ -1,19 +1,41 @@
-# 🐑 AGRI INTELLIGENCE BOT V1
+# ORACLE — market intelligence bot
 
-Bot modulare per il monitoraggio di un'azienda agricola con allevamento ovino, con focus iniziale Sardegna.
+Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPUTNIK code, connect to Trading 212, or place orders.
 
-## V1
-- ISMEA: prezzi ovicaprini e lattiero-caseari
-- Regione Sardegna: radar bandi
-- storico locale SQLite
-- motore trend/anomalie
-- report Telegram on-demand
-- GitHub Actions per esecuzione programmata
+## Pipeline
+1. Collect timestamped public RSS news and optional GDELT reporting.
+2. Fetch free Yahoo Finance continuous-futures candles for the fixed universe.
+3. Score only explicit asset-specific catalyst phrases and require price confirmation.
+4. Block missing, stale, invalid, or contradictory market data.
+5. Calculate illustrative ATR-based SL/targets and record each scan in SQLite.
+6. Send Telegram alerts only for newly deduplicated directional hypotheses.
 
-## Comandi Telegram
-`/report` `/prezzi` `/bandi` `/costi` `/azienda` `/alert`
+## Universe
+Gold GC=F; Copper HG=F; Platinum PL=F; Palladium PA=F; WTI CL=F; Brent BZ=F; Wheat ZW=F; Corn ZC=F; Soybeans ZS=F. Silver excluded.
 
-## Configurazione
-Copia `.env.example` in `.env` e inserisci `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`.
+These are Yahoo Finance continuous futures symbols, not broker-specific CFDs or exchange-expiry contracts. Confirm mappings and availability before relying on results.
 
-Il parser delle pagine istituzionali è volutamente separato dai motori: se una fonte cambia struttura, si modifica solo il relativo modulo.
+## Run
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python -m oracle.main
+```
+
+## Configuration
+Optional Telegram credentials: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Other settings are in .env.example. Quotes older than MAX_QUOTE_AGE_MINUTES are rejected.
+
+## Actions
+GitHub Actions runs every five minutes and can be manually dispatched. Add Telegram credentials as repository Actions secrets to enable delivery. Each run uploads its SQLite journal as an artifact; ephemeral runners mean this is not a durable shared database.
+
+## Limitations
+- No verified forward economic calendar is integrated yet. RSS publication feeds are not a calendar.
+- Yahoo Finance data is unofficial and may be delayed, unavailable, or differently mapped.
+- Keyword scoring is a transparent heuristic, not a validated probability or backtest.
+- Telegram API acceptance is not proof that a person received/read an alert.
+- No broker integration, live execution, position sizing, or paid data services.
+
+## Tests
+`python -m unittest discover -s tests -v`
