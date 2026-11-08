@@ -42,7 +42,29 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
         return None, "PRICE_CONFIRMATION_MISSING"
     if quote.atr <= 0:
         return None, "INVALID_ATR"
-    confidence = min(85, 50 + abs(news_score) * 5 + min(10, abs(move_pct) * 3))
+    # Technical context supplements (but never replaces) the news catalyst and price confirmation.
+    technical_score = 0
+    technical_notes = []
+    if quote.ema50 is not None and quote.ema200 is not None:
+        trend_up = quote.ema50 > quote.ema200
+        if (direction == "LONG" and trend_up) or (direction == "SHORT" and not trend_up):
+            technical_score += 1
+            technical_notes.append("EMA50/200 aligned")
+        else:
+            technical_score -= 1
+            technical_notes.append("EMA50/200 against direction")
+    if quote.rsi14 is not None:
+        if (direction == "LONG" and 50 <= quote.rsi14 <= 70) or (direction == "SHORT" and 30 <= quote.rsi14 <= 50):
+            technical_score += 1
+            technical_notes.append(f"RSI14={quote.rsi14:.1f} confirms")
+        elif (direction == "LONG" and quote.rsi14 > 75) or (direction == "SHORT" and quote.rsi14 < 25):
+            technical_score -= 1
+            technical_notes.append(f"RSI14={quote.rsi14:.1f} extended")
+    if quote.structure_high is not None and quote.structure_low is not None:
+        if (direction == "LONG" and quote.last > quote.structure_high) or (direction == "SHORT" and quote.last < quote.structure_low):
+            technical_score += 1
+            technical_notes.append("20-candle structure breakout")
+    confidence = min(85, max(50, 50 + abs(news_score) * 5 + min(10, abs(move_pct) * 3) + technical_score * 3))
     if confidence < MIN_CONFIDENCE:
         return None, "CONFIDENCE_FAIL"
     risk = 1.5 * quote.atr
@@ -51,6 +73,7 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     else:
         sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
     rationale = (f"Asset-specific news score {news_score:+d}; 15m price change {move_pct:+.3f}%; "
-                 f"quote age {int(age)}m. Rule-based hypothesis, not a validated probability.")
+                 f"quote age {int(age)}m; technical context: {", ".join(technical_notes) if technical_notes else "unavailable"}. "
+                 "Rule-based hypothesis, not a validated probability.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now), "SIGNAL"
