@@ -12,6 +12,10 @@ from .telegram_commands import poll_telegram_commands
 def main():
     started = datetime.now(timezone.utc)
     print(f"ORACLE scan started={started.isoformat()}")
+
+    # Answer pending Telegram commands before slower news/calendar/market requests.
+    poll_telegram_commands()
+
     calendar = fetch_economic_calendar(days=45)
     save_calendar_events(calendar)
     print(f"[CALENDAR] upcoming_events={len(calendar)}")
@@ -35,7 +39,6 @@ def main():
             print(f"[NO SIGNAL] {instrument.name}: {status}")
     save_scan_meta(started, len(news), len(UNIVERSE))
     print(f"[DONE] instruments={len(UNIVERSE)} quotes={len(quotes)} directional={directional}; research only.")
-    poll_telegram_commands()
 
 
 if __name__ == "__main__":
