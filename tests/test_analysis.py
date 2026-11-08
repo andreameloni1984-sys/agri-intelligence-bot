@@ -67,5 +67,29 @@ class AnalysisTests(unittest.TestCase):
         self.assertIsNone(signal)
         self.assertEqual(status, "INVALID_MARKET_DATA")
 
+    def test_asset_specific_catalysts_are_mapped(self):
+        copper = next(x for x in UNIVERSE if x.name == "Copper")
+        soybeans = next(x for x in UNIVERSE if x.name == "Soybeans")
+        wti = next(x for x in UNIVERSE if x.name == "WTI")
+        score, matched = score_news(copper, [self.item("China announces stimulus for manufacturing")])
+        self.assertEqual(score, 2)
+        self.assertEqual(len(matched), 1)
+        score, _ = score_news(soybeans, [self.item("China import demand for soybeans rises")])
+        self.assertEqual(score, 2)
+        score, _ = score_news(wti, [self.item("Oil supply disruption threatens exports")])
+        self.assertEqual(score, 2)
+
+    def test_negative_supply_and_harvest_catalysts_are_mapped(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        score, matched = score_news(wheat, [self.item("Bumper wheat crop expected this season")])
+        self.assertEqual(score, -2)
+        self.assertEqual(len(matched), 1)
+
+    def test_explicitly_negated_catalyst_is_ignored(self):
+        wti = next(x for x in UNIVERSE if x.name == "WTI")
+        score, matched = score_news(wti, [self.item("OPEC says no production cut is planned")])
+        self.assertEqual(score, 0)
+        self.assertEqual(matched, [])
+
 if __name__ == "__main__":
     unittest.main()
