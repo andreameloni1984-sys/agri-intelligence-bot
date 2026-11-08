@@ -6,15 +6,11 @@ from .analysis import build_signal
 from .calendar import fetch_economic_calendar
 from .storage import save_result, save_scan_meta, save_quotes, save_calendar_events
 from .notify import send_telegram
-from .telegram_commands import poll_telegram_commands
 
 
 def main():
     started = datetime.now(timezone.utc)
     print(f"ORACLE scan started={started.isoformat()}")
-
-    # Answer pending Telegram commands before slower news/calendar/market requests.
-    poll_telegram_commands()
 
     calendar = fetch_economic_calendar(days=45)
     save_calendar_events(calendar)
