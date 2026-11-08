@@ -11,7 +11,7 @@ Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPU
 5. Matches asset-specific catalyst phrases, checks whether price direction confirms the news, and blocks a directional hypothesis if evidence conflicts.
 6. Calculates illustrative ATR-based stop-loss and two targets. The confidence score is a rule-based heuristic, not a statistically validated probability.
 7. Records scan results, latest quotes and upcoming calendar events in SQLite.
-8. Sends Telegram alerts for newly detected, deduplicated directional hypotheses and supports read-only Telegram commands.
+8. Sends Telegram alerts for newly detected, deduplicated directional hypotheses.
 
 ## Markets and data symbols
 
@@ -43,9 +43,7 @@ Commands:
 - `/status` — last scan time, number of news items and markets checked.
 - `/report` — latest directional hypotheses with reference, stop and targets.
 - `/prezzi` — latest saved quotes and timestamps.
-- `/calendario` — next scheduled economic events.\n\nStart the persistent Telegram service with `python -m oracle.telegram_bot`.
-
-Telegram commands run through a separate persistent polling process (`python -m oracle.telegram_bot`), using the same BotFather token and configured chat ID as the former AGRI bot. This restores the always-listening Telegram model instead of polling only during five-minute GitHub Actions jobs. Run exactly one polling process per bot token; do not run the old `getUpdates` poller at the same time. If a webhook was configured, remove it before starting polling. The GitHub Actions market scanner remains separate and only sends alerts. The Telegram process must be hosted continuously (for example, on an existing always-on server); GitHub Actions scheduled jobs are not a persistent host.
+- `/calendario` — next scheduled economic events.\n\n**Alerts are automatic:** GitHub Actions starts the ORACLE scan every five minutes. When a new directional hypothesis passes the checks, ORACLE sends a Telegram message directly using `sendMessage`; you do not need to write `/start` or any command. The workflow restores a small SQLite journal between runs to avoid repeating the same catalyst alert. If Telegram rejects an alert or credentials are unavailable, the unsent signal is not marked as delivered and can be retried on the next scan. GitHub scheduled jobs can start a few minutes late at busy times; this is an automatic scan, not a guaranteed real-time feed.
 
 ## Economic calendar coverage
 
@@ -64,7 +62,7 @@ Official sources:
 
 ## Automation and journal
 
-GitHub Actions runs the research scan every five minutes and can also be started manually from the Actions tab. The scan stores SQLite results and uploads a run artifact for 30 days. GitHub-hosted runners are temporary and the previous artifact is not automatically restored into the next run: Telegram read commands therefore show the latest scan's data, not a complete multi-day history. A durable shared journal/database is not yet configured.
+GitHub Actions runs the research scan every five minutes and can also be started manually from the Actions tab. The scan stores SQLite results and uploads a run artifact for 30 days. GitHub-hosted runners are temporary and the previous artifact is not automatically restored into the next run: The journal is also used to suppress duplicate Telegram alerts across scheduled runs. GitHub Actions cache is best-effort persistence; it is not a transactional database or a guaranteed permanent archive.
 
 The repository also includes Python test/quality checks, CodeQL, dependency review, pip-audit and Dependabot workflows. Repository-level security settings (such as secret scanning and Dependabot alerts) must be checked separately in GitHub Settings.
 
