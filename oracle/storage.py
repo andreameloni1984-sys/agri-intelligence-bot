@@ -64,6 +64,13 @@ def save_calendar_events(events):
     db.close()
 
 
+def _signal_dedup_key(signal: Signal) -> str:
+    """Stable key for one instrument/direction per UTC hour."""
+    hour_bucket = int(signal.created_at.timestamp() // 3600)
+    material = "|".join([signal.instrument, signal.symbol, signal.direction, str(hour_bucket)])
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
 def save_result(signal: Signal | None, instrument: str, symbol: str, status: str) -> bool:
     db = connect()
     if signal:
@@ -71,9 +78,7 @@ def save_result(signal: Signal | None, instrument: str, symbol: str, status: str
         # A time bucket lets a still-valid setup alert again later while suppressing
         # the five-minute scan duplicates. News URLs are deliberately excluded:
         # changing headlines must not bypass deduplication for the same setup.
-        hour_bucket = int(signal.created_at.timestamp() // 3600)
-        material = "|".join([signal.instrument, signal.symbol, signal.direction, str(hour_bucket)])
-        key = hashlib.sha256(material.encode()).hexdigest()
+        key = _signal_dedup_key(signal)
         cursor = db.execute("""INSERT OR IGNORE INTO runs
         (created_at,instrument,symbol,status,direction,confidence,reference_price,
          stop_loss,target_1,target_2,rationale,news_urls,signal_key)
@@ -94,8 +99,7 @@ def save_result(signal: Signal | None, instrument: str, symbol: str, status: str
 
 def delete_signal(signal: Signal):
     """Remove an unsent alert so a later scheduled scan can retry it."""
-    material = "|".join([signal.instrument, signal.symbol, signal.direction, ",".join(sorted(signal.news_urls))])
-    key = hashlib.sha256(material.encode()).hexdigest()
+    key = _signal_dedup_key(signal)
     db = connect()
     db.execute("DELETE FROM runs WHERE signal_key = ?", (key,))
     db.commit()
