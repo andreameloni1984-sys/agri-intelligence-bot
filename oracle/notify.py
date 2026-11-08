@@ -21,5 +21,5 @@ def send_telegram(signal: Signal):
         print(f"[TELEGRAM] API accepted={accepted}")
         return accepted
     except Exception as exc:
-        print(f"[TELEGRAM] send error: {exc}")
+        print(f"[TELEGRAM] send error: {type(exc).__name__}")
         return False
