@@ -88,7 +88,7 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     direction = "LONG" if technical_score > 0 else "SHORT"
     news_score, matched = score_news(instrument, news)
     # News is contextual confirmation/contradiction, never a prerequisite for a technical setup.
-    if (direction == "LONG" and news_score <= -3) or (direction == "SHORT" and news_score >= 3):
+    if (direction == "LONG" and news_score <= -2) or (direction == "SHORT" and news_score >= 2):
         return None, "NEWS_CONTRADICTS_TECHNICAL"
     move_pct = ((quote.last / quote.previous_close) - 1) * 100
     confidence = min(85, max(50, 50 + min(24, abs(technical_score) * 6) +
