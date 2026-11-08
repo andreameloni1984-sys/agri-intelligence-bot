@@ -43,9 +43,9 @@ Commands:
 - `/status` — last scan time, number of news items and markets checked.
 - `/report` — latest directional hypotheses with reference, stop and targets.
 - `/prezzi` — latest saved quotes and timestamps.
-- `/calendario` — next scheduled economic events.
+- `/calendario` — next scheduled economic events.\n\nStart the persistent Telegram service with `python -m oracle.telegram_bot`.
 
-Telegram polling runs during each scheduled scan, so command response time depends on GitHub Actions scheduling. It is not an always-on Telegram server. If the bot has a webhook configured, Telegram polling will not work until that webhook is removed. The workflow logs make missing credentials and API errors explicit.
+Telegram commands run through a separate persistent polling process (`python -m oracle.telegram_bot`), using the same BotFather token and configured chat ID as the former AGRI bot. This restores the always-listening Telegram model instead of polling only during five-minute GitHub Actions jobs. Run exactly one polling process per bot token; do not run the old `getUpdates` poller at the same time. If a webhook was configured, remove it before starting polling. The GitHub Actions market scanner remains separate and only sends alerts. The Telegram process must be hosted continuously (for example, on an existing always-on server); GitHub Actions scheduled jobs are not a persistent host.
 
 ## Economic calendar coverage
 
