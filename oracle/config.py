@@ -33,7 +33,7 @@ DEFAULT_RSS_URLS = [
     "https://www.eia.gov/rss/press_rss.xml",
     "http://www.nass.usda.gov/rss/news.xml",
 ]
-RSS_URLS = [x.strip() for x in os.getenv("NEWS_RSS_URLS", ",".join(DEFAULT_RSS_URLS)).split(",") if x.strip()]
+RSS_URLS = [x.strip() for x in (os.getenv("NEWS_RSS_URLS") or ",".join(DEFAULT_RSS_URLS)).split(",") if x.strip()]
 GDELT_ENABLED = env_bool("GDELT_ENABLED", True)
 MAX_QUOTE_AGE_MINUTES = int(os.getenv("MAX_QUOTE_AGE_MINUTES", "45"))
 NEWS_LOOKBACK_HOURS = int(os.getenv("NEWS_LOOKBACK_HOURS", "12"))
