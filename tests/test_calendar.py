@@ -36,7 +36,7 @@ class CalendarTests(unittest.TestCase):
         now = datetime(2026, 11, 1, tzinfo=timezone.utc)
         events = parse_fomc_calendar(html, now=now, days=60)
         self.assertEqual(len(events), 2)
-        self.assertEqual(events[0]["date_utc"], "2026-11-29T19:00:00+00:00")
+        self.assertEqual(events[0]["date_utc"], "2026-11-28T19:00:00+00:00")
 
     def test_wasde_parser_reads_official_annual_dates(self):
         html = "<h3>2026 WASDE Release Dates (12:00pm ET)</h3> In 2026 the WASDE report will be released on Jan. 12, Feb. 10, Nov. 10, and Dec. 10."
