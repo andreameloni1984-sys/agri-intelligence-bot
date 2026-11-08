@@ -20,12 +20,12 @@ BLS_IMPORTANT = (
     "Employment Cost Index", "U.S. Import and Export Price Indexes",
 )
 DATE_RE = re.compile(
-    r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\\s+"
-    r"(January|February|March|April|May|June|July|August|September|October|November|December)\\s+"
-    r"(\\d{1,2}),\\s+(\\d{4})\\s+(\\d{1,2}:\\d{2})\\s+(AM|PM)\\s+"
-    r"(.+?)(?=(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\\s+"
-    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+"
-    r"\\d{1,2},\\s+\\d{4}|NOTE: All times|$)",
+    r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+    r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"(\d{1,2}),\s+(\d{4})\s+(\d{1,2}:\d{2})\s+(AM|PM)\s+"
+    r"(.+?)(?=(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+    r"\d{1,2},\s+\d{4}|NOTE: All times|$)",
     re.IGNORECASE,
 )
 
@@ -40,7 +40,7 @@ class _Text(HTMLParser):
 def _html_text(html: str) -> str:
     parser = _Text()
     parser.feed(html)
-    return re.sub(r"\\s+", " ", " ".join(parser.parts))
+    return re.sub(r"\s+", " ", " ".join(parser.parts))
 
 def _to_utc(day: date, clock: str, ampm: str) -> datetime:
     parsed = datetime.strptime(f"{clock} {ampm.upper()}", "%I:%M %p").time()
@@ -76,12 +76,12 @@ def _eia_exceptions(html: str) -> dict[date, date]:
     """Map the normal Wednesday date to the official holiday-adjusted date."""
     text = _html_text(html)
     pattern = re.compile(
-        r"(January|February|March|April|May|June|July|August|September|October|November|December)\\s+"
-        r"(\\d{1,2}),\\s+(\\d{4})\\s+"
-        r"(January|February|March|April|May|June|July|August|September|October|November|December)\\s+"
-        r"(\\d{1,2}),\\s+(\\d{4})\\s+"
-        r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+"
-        r"(\\d{1,2}:\\d{2})\\s+(a\\.m\\.|p\\.m\\.)",
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+        r"(\d{1,2}),\s+(\d{4})\s+"
+        r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
+        r"(\d{1,2}),\s+(\d{4})\s+"
+        r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+"
+        r"(\d{1,2}:\d{2})\s+(a\.m\.|p\.m\.)",
         re.IGNORECASE,
     )
     result = {}
@@ -111,9 +111,9 @@ def parse_eia_schedule(html: str, now: datetime | None = None, days: int = 45) -
             if event_day != day:
                 raw = _html_text(html)
                 time_match = re.search(
-                    rf"{event_day.strftime('%B')}\\s+{event_day.day},\\s+{event_day.year}.*?"
-                    rf"(?:Wednesday|Thursday|Monday|Tuesday|Friday|Saturday|Sunday)\\s+"
-                    rf"(\\d{{1,2}}:\\d{{2}})\\s+(a\\.m\\.|p\\.m\\.)",
+                    rf"{event_day.strftime('%B')}\s+{event_day.day},\s+{event_day.year}.*?"
+                    rf"(?:Wednesday|Thursday|Monday|Tuesday|Friday|Saturday|Sunday)\s+"
+                    rf"(\d{{1,2}}:\d{{2}})\s+(a\.m\.|p\.m\.)",
                     raw, re.IGNORECASE)
                 if time_match:
                     parsed = datetime.strptime(time_match.group(1) + " " + time_match.group(2).replace(".", "").upper(), "%I:%M %p").time()
