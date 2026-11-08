@@ -86,6 +86,17 @@ def save_result(signal: Signal | None, instrument: str, symbol: str, status: str
     return inserted
 
 
+
+def delete_signal(signal: Signal):
+    """Remove an unsent alert so a later scheduled scan can retry it."""
+    material = "|".join([signal.instrument, signal.symbol, signal.direction, ",".join(sorted(signal.news_urls))])
+    key = hashlib.sha256(material.encode()).hexdigest()
+    db = connect()
+    db.execute("DELETE FROM runs WHERE signal_key = ?", (key,))
+    db.commit()
+    db.close()
+
+
 def get_status():
     db = connect()
     row = db.execute("SELECT started_at,news_count,instruments_checked FROM scan_meta ORDER BY id DESC LIMIT 1").fetchone()
