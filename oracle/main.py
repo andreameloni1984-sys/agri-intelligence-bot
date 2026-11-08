@@ -30,7 +30,10 @@ def main():
             directional += 1
             print(f"[SIGNAL] {signal.instrument} {signal.direction} confidence={signal.confidence} new={is_new}")
             if is_new:
-                send_telegram(signal)
+                sent = send_telegram(signal)
+                if not sent:
+                    from .storage import delete_signal
+                    delete_signal(signal)  # retry the same alert on the next scan if Telegram did not accept it
         else:
             print(f"[NO SIGNAL] {instrument.name}: {status}")
     save_scan_meta(started, len(news), len(UNIVERSE))
