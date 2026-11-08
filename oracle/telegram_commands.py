@@ -134,5 +134,5 @@ def poll_telegram_commands():
         print(f"[TELEGRAM] commands_processed={processed}")
         return processed
     except Exception as exc:
-        print(f"[TELEGRAM] command polling error: {exc}")
+        print(f"[TELEGRAM] command polling error: {type(exc).__name__}")
         return 0
