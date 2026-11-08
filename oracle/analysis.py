@@ -14,11 +14,95 @@ ASSET_EFFECTS = {
     "Soybeans": {"soybean export ban": 2, "drought": 2, "crop damage": 2, "china import demand": 2, "harvest forecast increase": -2, "china import decline": -2},
 }
 
+# Fast, local catalyst rules inspired by SPUTNIK's event-to-market pipeline.
+# They run only on news already collected by the existing scan: no extra HTTP calls.
+CATALYST_RULES = {
+    "Gold": {
+        2: ("geopolitical escalation", "military strike", "armed conflict", "safe haven demand",
+            "central bank buying", "central banks buy", "gold purchases", "rate cut", "fed cuts rates",
+            "real yields fall", "dollar weakens", "dollar falls", "sanctions escalation"),
+        -2: ("real yields rise", "dollar strengthens", "dollar rises", "rate hike",
+             "fed raises rates", "central bank selling", "gold sales"),
+    },
+    "Copper": {
+        2: ("china stimulus", "china announces stimulus", "manufacturing expansion",
+            "factory activity expands", "mine disruption", "copper mine strike",
+            "copper supply disruption", "smelter outage", "china imports rise"),
+        -2: ("china slowdown", "china manufacturing contracts", "manufacturing contraction",
+             "factory activity contracts", "copper demand slump", "mine restart",
+             "copper production increase", "trade war escalation"),
+    },
+    "Platinum": {
+        2: ("platinum mine disruption", "mine disruption", "supply disruption",
+            "mine strike", "auto demand recovery", "platinum demand increase"),
+        -2: ("auto demand slump", "production increase", "platinum supply increase",
+             "vehicle production falls", "auto sales decline"),
+    },
+    "Palladium": {
+        2: ("palladium mine disruption", "mine disruption", "supply disruption",
+            "mine strike", "auto demand recovery", "vehicle production rises"),
+        -2: ("auto demand slump", "production increase", "palladium supply increase",
+             "vehicle production falls", "auto sales decline", "electric vehicle share rises"),
+    },
+    "WTI": {
+        2: ("opec production cut", "opec cuts output", "oil supply disruption",
+            "crude supply disruption", "middle east escalation", "hormuz closure",
+            "us crude inventory draw", "crude stocks fall", "oil exports halt"),
+        -2: ("opec raises production", "oil production increase", "crude inventory build",
+             "crude stocks rise", "us crude inventory build", "demand slump",
+             "ceasefire", "shipping routes reopen"),
+    },
+    "Brent": {
+        2: ("opec production cut", "opec cuts output", "oil supply disruption",
+            "shipping disruption", "tanker attack", "hormuz closure",
+            "middle east escalation", "oil exports halt"),
+        -2: ("opec raises production", "oil production increase", "global demand slump",
+             "ceasefire", "shipping routes reopen", "supply restored"),
+    },
+    "Wheat": {
+        2: ("wheat export ban", "wheat export restriction", "drought", "crop damage",
+            "wheat harvest downgrade", "wheat production forecast cut", "black sea disruption"),
+        -2: ("wheat harvest forecast increase", "bumper wheat crop", "wheat production forecast raised",
+             "wheat export resumption", "record wheat harvest"),
+    },
+    "Corn": {
+        2: ("corn export ban", "corn export restriction", "drought", "crop damage",
+            "corn harvest downgrade", "ethanol demand increase", "corn production forecast cut"),
+        -2: ("corn harvest forecast increase", "bumper corn crop", "corn production forecast raised",
+             "record corn harvest", "ethanol demand decline"),
+    },
+    "Soybeans": {
+        2: ("soybean export ban", "soybean export restriction", "drought", "crop damage",
+            "china import demand", "china buys soybeans", "soybean harvest downgrade",
+            "soybean production forecast cut"),
+        -2: ("china import decline", "china cancels soybean purchases",
+             "soybean harvest forecast increase", "bumper soybean crop",
+             "soybean production forecast raised", "record soybean harvest"),
+    },
+}
+
+def _phrase_present(text: str, phrase: str) -> bool:
+    """Ignore a catalyst phrase when it is explicitly negated nearby."""
+    position = text.find(phrase)
+    if position < 0:
+        return False
+    prefix = text[max(0, position - 35):position]
+    return not any(token in prefix for token in (
+        "no ", "not ", "without ", "deny ", "denies ", "denied ",
+        "reject ", "rejects ", "rejected ", "unlikely to ",
+    ))
+
 def score_news(instrument, news: list[NewsItem]):
-    effects, total, matched = ASSET_EFFECTS.get(instrument.name, {}), 0, []
+    """Score dated, already-fetched asset catalysts; no network or blocking work."""
+    legacy = ASSET_EFFECTS.get(instrument.name, {})
+    rules = CATALYST_RULES.get(instrument.name, {})
+    total, matched = 0, []
     for item in news:
         text = f"{item.title} {item.summary}".lower()
-        item_score = sum(weight for phrase, weight in effects.items() if phrase in text)
+        item_score = sum(weight for phrase, weight in legacy.items() if _phrase_present(text, phrase))
+        for weight, phrases in rules.items():
+            if any(_phrase_present(text, phrase) for phrase in phrases):
+                item_score += weight
         item_score = max(-2, min(2, item_score))
         if item_score:
             total += item_score
