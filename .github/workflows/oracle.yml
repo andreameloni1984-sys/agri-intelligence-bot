@@ -1,0 +1,42 @@
+name: ORACLE scan
+on:
+  workflow_dispatch:
+  pull_request:
+  schedule:
+    - cron: "*/5 * * * *"
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: oracle-scan
+  cancel-in-progress: true
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Run ORACLE
+        if: github.event_name != 'pull_request'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NEWS_RSS_URLS: ${{ vars.NEWS_RSS_URLS }}
+          GDELT_ENABLED: "true"
+          MAX_QUOTE_AGE_MINUTES: "45"
+          DB_PATH: data/oracle.sqlite3
+        run: python -m oracle.main
+      - name: Upload run journal
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-journal-${{ github.run_id }}
+          path: data/oracle.sqlite3
+          if-no-files-found: ignore
+          retention-days: 30
