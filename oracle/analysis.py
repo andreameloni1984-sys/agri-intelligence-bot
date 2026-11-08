@@ -73,7 +73,7 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     else:
         sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
     rationale = (f"Asset-specific news score {news_score:+d}; 15m price change {move_pct:+.3f}%; "
-                 f"quote age {int(age)}m; technical context: {", ".join(technical_notes) if technical_notes else "unavailable"}. "
+                 f"quote age {int(age)}m; technical context: {chr(44).join(technical_notes) if technical_notes else chr(117)+chr(110)+chr(97)+chr(118)+chr(97)+chr(105)+chr(108)+chr(97)+chr(98)+chr(108)+chr(101)}. "
                  "Rule-based hypothesis, not a validated probability.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now), "SIGNAL"
