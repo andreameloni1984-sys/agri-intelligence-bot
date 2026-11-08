@@ -17,6 +17,11 @@ class Quote:
     atr: float
     timestamp: datetime
     source: str = "Yahoo Finance"
+    ema50: float | None = None
+    ema200: float | None = None
+    rsi14: float | None = None
+    structure_high: float | None = None
+    structure_low: float | None = None
 
 @dataclass
 class Signal:
