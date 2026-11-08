@@ -8,10 +8,11 @@ Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPU
 2. Collects timestamped public RSS news from the White House, Federal Reserve, BLS, EIA and USDA NASS, plus optional GDELT news.
 3. Downloads free Yahoo Finance continuous-futures candles in a batch and rejects missing, invalid or stale quotes.
 4. Reads official US schedules from BLS (major inflation/employment releases), EIA (weekly petroleum report), Federal Reserve (FOMC meetings) and USDA (WASDE).
-5. Matches asset-specific catalyst phrases, checks whether price direction confirms the news, and blocks a directional hypothesis if evidence conflicts.
-6. Calculates illustrative ATR-based stop-loss and two targets. The confidence score is a rule-based heuristic, not a statistically validated probability.
-7. Records scan results, latest quotes and upcoming calendar events in SQLite.
-8. Sends Telegram alerts for newly detected, deduplicated directional hypotheses.
+5. Builds the primary direction from technical confluence: EMA50/EMA200 trend, price versus EMA50, RSI14, 20-candle breakout/breakdown and latest-candle momentum. A minimum score is required; incomplete indicator data produces no signal.
+6. Uses asset-specific news as secondary context: matching news can support the technical setup, while sufficiently strong opposing news blocks it. News is not a prerequisite for a technical signal.
+7. Calculates illustrative ATR-based stop-loss and two targets. The confidence score is a rule-based heuristic, not a statistically validated probability.
+8. Records scan results, latest quotes and upcoming calendar events in SQLite.
+9. Sends Telegram alerts for newly detected, deduplicated directional hypotheses.
 
 ## Markets and data symbols
 
@@ -36,7 +37,7 @@ Add these GitHub repository secrets under **Settings → Secrets and variables �
 - `TELEGRAM_BOT_TOKEN`: token from BotFather.
 - `TELEGRAM_CHAT_ID`: the private chat or group that should receive alerts.
 
-Never paste tokens into source code or chat. At the start of every automatic scan, ORACLE validates that the token and destination are usable. It does not send a test message.
+Never paste tokens into source code or chat. At the start of every automatic scan, ORACLE checks the Telegram credentials. If Telegram is not configured or temporarily unavailable, the market scan continues; alert delivery is unavailable until the credentials and destination work. A separate manual workflow option sends an explicit test message.
 
 **Alerts are automatic:** GitHub Actions starts the ORACLE scan every five minutes. When a new directional hypothesis passes the checks, ORACLE sends a Telegram message directly using `sendMessage`; you do not need to write `/start` or any command. The workflow restores a small SQLite journal between runs to avoid repeating the same catalyst alert. If Telegram rejects an alert, the unsent signal is not marked as delivered and can be retried on the next scan. GitHub scheduled jobs can start a few minutes late at busy times; this is automatic scanning, not a guaranteed real-time feed.
 
@@ -70,6 +71,14 @@ pip install -r requirements.txt
 cp .env.example .env
 python -m oracle.main
 ```
+
+## Technical engine
+
+- Candles: 15-minute Yahoo Finance continuous-futures data.
+- Indicators: EMA50, EMA200, RSI14, ATR14, previous 20-candle high/low and latest-candle direction.
+- The EMA200 calculation is accepted only after at least 220 candles are available.
+- Direction requires a technical score of at least 3 and a clear lead for one side; missing or stale data blocks the signal.
+- SL: 1.5 × ATR from reference price; TP1: 1.5R; TP2: 2.5R. These are research levels and are not execution instructions.
 
 ## Limitations and safety
 
