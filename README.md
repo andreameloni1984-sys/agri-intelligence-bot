@@ -27,8 +27,20 @@ python -m oracle.main
 ## Configuration
 Optional Telegram credentials: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Other settings are in .env.example. Quotes older than MAX_QUOTE_AGE_MINUTES are rejected.
 
-## Actions
-GitHub Actions runs every five minutes and can be manually dispatched. Add Telegram credentials as repository Actions secrets to enable delivery. Each run uploads its SQLite journal as an artifact; ephemeral runners mean this is not a durable shared database.
+## GitHub automation and security
+The repository is public. The following GitHub-native checks are configured on the `oracle-github-tooling` branch:
+
+- **Python Quality:** unit tests and compilation on Python 3.11, 3.12, and 3.13 for pushes and pull requests.
+- **CodeQL:** scheduled and pull-request static analysis for Python.
+- **Dependency Review:** checks dependency changes in pull requests and fails on high-severity findings.
+- **pip-audit:** weekly and pull-request audit of declared Python dependencies against known vulnerability advisories.
+- **Dependabot:** weekly update proposals for Python packages and GitHub Actions.
+
+These workflows use standard GitHub-hosted runners and read-only permissions wherever possible. Public-repository standard Actions usage is free under GitHub's published plan rules. The account's billing plan and remaining usage cannot be read through this repository integration.
+
+**Repository settings still need an owner-side check:** enable Dependabot alerts/security updates and secret scanning/push protection where GitHub offers them for this public repository. Workflow files do not switch those repository-level settings on. Do not add credentials to the repository or commit `.env`.
+
+The existing five-minute ORACLE scan remains a separate workflow. Add Telegram credentials as repository Actions secrets only if you explicitly want Telegram delivery. Each scan currently uploads its SQLite journal as a run artifact; ephemeral runners mean this is not a durable shared database.
 
 ## Limitations
 - No verified forward economic calendar is integrated yet. RSS publication feeds are not a calendar.
