@@ -1,6 +1,9 @@
 import unittest
 from datetime import datetime, timezone
-from oracle.calendar import parse_bls_calendar, parse_eia_schedule
+from oracle.calendar import (
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar,
+)
+
 
 class CalendarTests(unittest.TestCase):
     def test_bls_parser_extracts_high_impact_release_and_utc_time(self):
@@ -27,6 +30,22 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["event"], "Weekly Petroleum Status Report")
         self.assertEqual(events[0]["date_utc"], "2026-11-11T15:30:00+00:00")
+
+    def test_fomc_parser_uses_second_meeting_day(self):
+        html = "<h2>2026 FOMC Meetings</h2><p>November 27-28</p><p>December 8-9*</p><h2>2025 FOMC Meetings</h2>"
+        now = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        events = parse_fomc_calendar(html, now=now, days=60)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["date_utc"], "2026-11-29T19:00:00+00:00")
+
+    def test_wasde_parser_reads_official_annual_dates(self):
+        html = "<h3>2026 WASDE Release Dates (12:00pm ET)</h3> In 2026 the WASDE report will be released on Jan. 12, Feb. 10, Nov. 10, and Dec. 10."
+        now = datetime(2026, 11, 8, tzinfo=timezone.utc)
+        events = parse_wasde_calendar(html, now=now, days=60)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["event"], "USDA WASDE supply and demand report")
+        self.assertEqual(events[0]["date_utc"], "2026-11-10T17:00:00+00:00")
+
 
 if __name__ == "__main__":
     unittest.main()
