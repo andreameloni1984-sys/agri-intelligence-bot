@@ -67,7 +67,12 @@ def save_calendar_events(events):
 def save_result(signal: Signal | None, instrument: str, symbol: str, status: str) -> bool:
     db = connect()
     if signal:
-        material = "|".join([signal.instrument, signal.symbol, signal.direction, ",".join(sorted(signal.news_urls))])
+        # The same direction should be deduplicated within an hour, not forever.
+        # A time bucket lets a still-valid setup alert again later while suppressing
+        # the five-minute scan duplicates. News URLs are deliberately excluded:
+        # changing headlines must not bypass deduplication for the same setup.
+        hour_bucket = int(signal.created_at.timestamp() // 3600)
+        material = "|".join([signal.instrument, signal.symbol, signal.direction, str(hour_bucket)])
         key = hashlib.sha256(material.encode()).hexdigest()
         cursor = db.execute("""INSERT OR IGNORE INTO runs
         (created_at,instrument,symbol,status,direction,confidence,reference_price,
