@@ -5,10 +5,11 @@ Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPU
 ## Pipeline
 1. Collect timestamped public RSS news and optional GDELT reporting.
 2. Fetch free Yahoo Finance continuous-futures candles for the fixed universe.
-3. Score only explicit asset-specific catalyst phrases and require price confirmation.
-4. Block missing, stale, invalid, or contradictory market data.
-5. Calculate illustrative ATR-based SL/targets and record each scan in SQLite.
-6. Send Telegram alerts only for newly deduplicated directional hypotheses.
+3. Load the official US economic release calendar (BLS macro releases + EIA weekly petroleum report).
+4. Score only explicit asset-specific catalyst phrases and require price confirmation.
+5. Block missing, stale, invalid, or contradictory market data.
+6. Calculate illustrative ATR-based SL/targets and record each scan in SQLite.
+7. Send Telegram alerts only for newly deduplicated directional hypotheses.
 
 ## Universe
 Gold GC=F; Copper HG=F; Platinum PL=F; Palladium PA=F; WTI CL=F; Brent BZ=F; Wheat ZW=F; Corn ZC=F; Soybeans ZS=F. Silver excluded.
@@ -27,6 +28,13 @@ python -m oracle.main
 ## Configuration
 Optional Telegram credentials: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. Other settings are in .env.example. Quotes older than MAX_QUOTE_AGE_MINUTES are rejected.
 
+## Economic calendar
+ORACLE reads the published BLS annual release schedule and the EIA Weekly Petroleum Status Report schedule. Event timestamps are normalized from US Eastern Time to UTC; the event record retains its official source URL. BLS is filtered to major inflation, employment, productivity and wage releases. EIA's normal weekly petroleum report is Wednesday 10:30 a.m. Eastern; official holiday adjustments are read from its schedule where present. This is a schedule feed, not a consensus/forecast calendar, and the sources can change their schedules. A failed source is logged independently and does not fabricate events.
+
+Official sources:
+- BLS: https://www.bls.gov/schedule/
+- EIA: https://www.eia.gov/petroleum/supply/weekly/schedule.php
+
 ## GitHub automation and security
 The repository is public. The following GitHub-native checks have been added to the ORACLE branch:
 
@@ -43,7 +51,7 @@ These workflows use standard GitHub-hosted runners and read-only permissions whe
 The existing five-minute ORACLE scan remains a separate workflow. Add Telegram credentials as repository Actions secrets only if you explicitly want Telegram delivery. Each scan currently uploads its SQLite journal as a run artifact; ephemeral runners mean this is not a durable shared database.
 
 ## Limitations
-- No verified forward economic calendar is integrated yet. RSS publication feeds are not a calendar.
+- No live economic consensus, previous/actual values, or non-US central-bank calendar is included.
 - Yahoo Finance data is unofficial and may be delayed, unavailable, or differently mapped.
 - Keyword scoring is a transparent heuristic, not a validated probability or backtest.
 - Telegram API acceptance is not proof that a person received/read an alert.
