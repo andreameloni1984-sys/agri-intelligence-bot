@@ -4,6 +4,16 @@ import yfinance as yf
 from .config import UNIVERSE
 from .models import Quote
 
+def _symbol_history(data: pd.DataFrame, symbol: str):
+    """Handle both ticker-first and field-first yfinance MultiIndex layouts."""
+    if not isinstance(data.columns, pd.MultiIndex):
+        return data.copy()
+    if symbol in data.columns.get_level_values(0):
+        return data[symbol].copy()
+    if symbol in data.columns.get_level_values(1):
+        return data.xs(symbol, axis=1, level=1).copy()
+    return None
+
 def fetch_quotes() -> dict[str, Quote]:
     """Fetch the whole universe in one provider request; missing symbols fail closed."""
     symbols = [item.symbol for item in UNIVERSE]
@@ -16,16 +26,14 @@ def fetch_quotes() -> dict[str, Quote]:
         out = {}
         for symbol in symbols:
             try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    if symbol not in data.columns.get_level_values(0):
-                        print(f"[MARKET] symbol missing in batch: {symbol}")
-                        continue
-                    hist = data[symbol].copy()
-                else:
-                    hist = data.copy()
+                hist = _symbol_history(data, symbol)
+                if hist is None:
+                    print(f"[MARKET] symbol missing in batch: {symbol}")
+                    continue
                 hist = hist.dropna(subset=["Close", "High", "Low"])
-                if len(hist) < 15:
-                    print(f"[MARKET] insufficient candles for {symbol}: {len(hist)}")
+                # EMA200 needs a sufficiently long history; do not emit signals from a partial warm-up.
+                if len(hist) < 220:
+                    print(f"[MARKET] insufficient candles for {symbol}: {len(hist)} (need 220)")
                     continue
                 last_row = hist.iloc[-1]
                 close, previous = float(last_row["Close"]), float(hist.iloc[-2]["Close"])
@@ -47,7 +55,7 @@ def fetch_quotes() -> dict[str, Quote]:
                 rs = gains / losses.replace(0, float("nan"))
                 rsi = float((100 - (100 / (1 + rs))).iloc[-1])
                 if pd.isna(rsi):
-                    rsi = 100.0 if float(losses.iloc[-1]) == 0 else 50.0
+                    rsi = 50.0 if float(gains.iloc[-1]) == 0 else 100.0
                 structure = hist.iloc[-21:-1]
                 structure_high = float(structure["High"].max())
                 structure_low = float(structure["Low"].min())
