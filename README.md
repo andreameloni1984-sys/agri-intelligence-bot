@@ -64,7 +64,7 @@ Official sources:
 
 ## Automation and journal
 
-GitHub Actions runs the research scan every five minutes and can also be started manually from the Actions tab. The scan stores SQLite results and uploads a run artifact for 30 days. GitHub-hosted runners are temporary, so the journal is not yet a durable always-available database. Telegram read commands show the most recent data retained by the current runner/artifact context.
+GitHub Actions runs the research scan every five minutes and can also be started manually from the Actions tab. The scan stores SQLite results and uploads a run artifact for 30 days. GitHub-hosted runners are temporary and the previous artifact is not automatically restored into the next run: Telegram read commands therefore show the latest scan's data, not a complete multi-day history. A durable shared journal/database is not yet configured.
 
 The repository also includes Python test/quality checks, CodeQL, dependency review, pip-audit and Dependabot workflows. Repository-level security settings (such as secret scanning and Dependabot alerts) must be checked separately in GitHub Settings.
 
