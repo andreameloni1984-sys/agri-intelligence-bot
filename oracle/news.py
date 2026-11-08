@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import calendar
 import requests
 import feedparser
@@ -18,24 +19,35 @@ def _fetch_feed(url: str):
     response.raise_for_status()
     return feedparser.parse(response.content)
 
-def fetch_rss() -> list[NewsItem]:
+def _fetch_one_feed(url: str, cutoff: datetime) -> list[NewsItem]:
     items = []
+    try:
+        feed = _fetch_feed(url)
+        if getattr(feed, "bozo", False):
+            print(f"[NEWS] RSS parse warning {url}: {getattr(feed, 'bozo_exception', 'unknown')}")
+        source = feed.feed.get("title", url)
+        for entry in feed.entries:
+            published = _parse_date(entry)
+            if not published or published < cutoff:
+                continue
+            title, link = entry.get("title", "").strip(), entry.get("link", url)
+            if title and link:
+                items.append(NewsItem(title, link, published, source, entry.get("summary", "")[:2000]))
+    except Exception as exc:
+        print(f"[NEWS] RSS error {url}: {type(exc).__name__}")
+    return items
+
+def fetch_rss() -> list[NewsItem]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=NEWS_LOOKBACK_HOURS)
-    for url in RSS_URLS:
-        try:
-            feed = _fetch_feed(url)
-            if getattr(feed, "bozo", False):
-                print(f"[NEWS] RSS parse warning {url}: {getattr(feed, 'bozo_exception', 'unknown')}")
-            source = feed.feed.get("title", url)
-            for entry in feed.entries:
-                published = _parse_date(entry)
-                if not published or published < cutoff:
-                    continue
-                title, link = entry.get("title", "").strip(), entry.get("link", url)
-                if title and link:
-                    items.append(NewsItem(title, link, published, source, entry.get("summary", "")[:2000]))
-        except Exception as exc:
-            print(f"[NEWS] RSS error {url}: {exc}")
+    items = []
+    # Parallel feed reads prevent one slow publisher from serially delaying the scan.
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(RSS_URLS)))) as pool:
+        futures = [pool.submit(_fetch_one_feed, url, cutoff) for url in RSS_URLS]
+        for future in as_completed(futures):
+            try:
+                items.extend(future.result())
+            except Exception as exc:
+                print(f"[NEWS] RSS worker error: {type(exc).__name__}")
     return items
 
 def fetch_gdelt() -> list[NewsItem]:
@@ -63,5 +75,11 @@ def fetch_gdelt() -> list[NewsItem]:
         return []
 
 def collect_news() -> list[NewsItem]:
-    unique = {item.url: item for item in fetch_rss() + fetch_gdelt() if item.url}
+    # Run RSS publishers and GDELT concurrently; catalyst interpretation below is local CPU only.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rss_future = pool.submit(fetch_rss)
+        gdelt_future = pool.submit(fetch_gdelt)
+        rss_items = rss_future.result()
+        gdelt_items = gdelt_future.result()
+    unique = {item.url: item for item in rss_items + gdelt_items if item.url}
     return sorted(unique.values(), key=lambda x: x.published, reverse=True)
