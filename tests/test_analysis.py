@@ -21,7 +21,7 @@ class AnalysisTests(unittest.TestCase):
         score, matched = score_news(self.gold, [self.item("Gold market update: sanctions announced")])
         self.assertEqual(score, 0); self.assertEqual(matched, [])
     def test_asset_specific_long_requires_price_confirmation(self):
-        quote = Quote("GC=F", 2010, 2000, 10, self.now)
+        quote = Quote("GC=F", 2010, 2000, 10, self.now, "test", 2005, 1990, 60, 2008, 1980)
         signal, status = build_signal(self.gold, quote, [self.item("Gold safe haven demand rises amid geopolitical escalation")])
         self.assertEqual(status, "SIGNAL"); self.assertEqual(signal.direction, "LONG")
         self.assertLess(signal.stop_loss, signal.reference_price)
