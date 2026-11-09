@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
-from oracle.analysis import build_signal, score_news
+from oracle.analysis import build_signal, score_news, classify_market_state
 from oracle.config import UNIVERSE
 from oracle.models import NewsItem, Quote
 
@@ -104,6 +104,20 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(status, "EARLY_SETUP")
         self.assertEqual(signal.setup_type, "EARLY_SETUP")
         self.assertLessEqual(signal.confidence, 59)
+
+    def test_bearish_primary_trend_with_bullish_rebound_is_distinguished(self):
+        quote = Quote("CL=F", 91.14, 90.80, 1.2, self.now, "test", 92.0, 95.0, 59.9)
+        trend, swing, interpretation = classify_market_state(quote)
+        self.assertEqual(trend, "RIBASSISTA")
+        self.assertEqual(swing, "RIALZISTA")
+        self.assertEqual(interpretation, "rimbalzo rialzista contro trend")
+
+    def test_bullish_primary_trend_with_bearish_pullback_is_distinguished(self):
+        quote = Quote("GC=F", 4100, 4110, 10, self.now, "test", 4090, 4050, 42)
+        trend, swing, interpretation = classify_market_state(quote)
+        self.assertEqual(trend, "RIALZISTA")
+        self.assertEqual(swing, "RIBASSISTA")
+        self.assertEqual(interpretation, "correzione ribassista contro trend")
 
 if __name__ == "__main__":
     unittest.main()
