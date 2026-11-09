@@ -155,6 +155,32 @@ def technical_reading(quote: Quote):
         return -short_score, notes
     return 0, notes
 
+def classify_market_state(quote: Quote):
+    """Separate the EMA50/200 primary trend from the current 15m swing."""
+    if quote.ema50 is None or quote.ema200 is None or quote.rsi14 is None:
+        return "NON DISPONIBILE", "NON DISPONIBILE", "indicatori incompleti"
+    if quote.ema50 > quote.ema200:
+        trend = "RIALZISTA"
+    elif quote.ema50 < quote.ema200:
+        trend = "RIBASSISTA"
+    else:
+        trend = "NEUTRALE"
+    if quote.last > quote.ema50 and quote.rsi14 >= 52:
+        swing = "RIALZISTA"
+    elif quote.last < quote.ema50 and quote.rsi14 <= 48:
+        swing = "RIBASSISTA"
+    else:
+        swing = "MISTO"
+    if trend == "RIBASSISTA" and swing == "RIALZISTA":
+        interpretation = "rimbalzo rialzista contro trend"
+    elif trend == "RIALZISTA" and swing == "RIBASSISTA":
+        interpretation = "correzione ribassista contro trend"
+    elif trend == swing and trend != "NEUTRALE":
+        interpretation = "trend e movimento breve concordi"
+    else:
+        interpretation = "movimento breve non conferma il trend"
+    return trend, swing, interpretation
+
 def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     now = datetime.now(timezone.utc)
     if quote is None:
@@ -184,7 +210,9 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     else:
         sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
     news_note = f"news score {news_score:+d}" if matched else "no matching asset-specific news"
-    rationale = (f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
+    trend, swing, interpretation = classify_market_state(quote)
+    rationale = (f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
+                 f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
                  f"15m price change {move_pct:+.3f}%; quote age {int(age)}m; {news_note}. "
                  "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
