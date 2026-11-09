@@ -8,6 +8,13 @@ from oracle.news import _parse_date, _fetch_feed
 from oracle.config import RSS_URLS
 
 class NewsTests(unittest.TestCase):
+    def test_dedicated_white_house_feeds_are_configured(self):
+        self.assertIn("https://www.whitehouse.gov/news/feed/", RSS_URLS)
+        self.assertIn("https://www.whitehouse.gov/presidential-actions/feed/", RSS_URLS)
+        self.assertIn("https://www.whitehouse.gov/briefings-statements/feed/", RSS_URLS)
+        self.assertIn("https://www.whitehouse.gov/releases/feed/", RSS_URLS)
+        self.assertNotIn("https://www.whitehouse.gov/feed/", RSS_URLS)
+
     def test_reuters_google_news_feed_is_configured(self):
         self.assertTrue(any("news.google.com/rss/search" in url and "site%3Areuters.com" in url for url in RSS_URLS))
 
