@@ -9,9 +9,9 @@ ASSET_EFFECTS = {
     "Palladium": {"mine disruption": 2, "supply disruption": 2, "auto demand recovery": 1, "auto demand slump": -2, "production increase": -1},
     "WTI": {"opec production cut": 2, "supply disruption": 2, "sanctions on oil": 1, "inventory build": -2, "production increase": -2, "demand slump": -2},
     "Brent": {"opec production cut": 2, "shipping disruption": 2, "supply disruption": 2, "sanctions on oil": 1, "inventory build": -1, "production increase": -2, "demand slump": -2},
-    "Wheat": {"wheat export ban": 2, "drought": 2, "crop damage": 2, "harvest forecast increase": -2, "export resumption": -1},
-    "Corn": {"corn export ban": 2, "drought": 2, "crop damage": 2, "ethanol demand increase": 1, "harvest forecast increase": -2},
-    "Soybeans": {"soybean export ban": 2, "drought": 2, "crop damage": 2, "china import demand": 2, "harvest forecast increase": -2, "china import decline": -2},
+    "Wheat": {"wheat export ban": 2, "wheat drought": 2, "drought damages wheat": 2, "wheat crop damage": 2, "harvest forecast increase": -2, "export resumption": -1},
+    "Corn": {"corn export ban": 2, "corn drought": 2, "drought damages corn": 2, "corn crop damage": 2, "ethanol demand increase": 1, "harvest forecast increase": -2},
+    "Soybeans": {"soybean export ban": 2, "soybean drought": 2, "drought damages soybean": 2, "soybean crop damage": 2, "china import demand": 2, "harvest forecast increase": -2, "china import decline": -2},
 }
 
 # Fast, local catalyst rules inspired by SPUTNIK's event-to-market pipeline.
@@ -60,19 +60,19 @@ CATALYST_RULES = {
              "ceasefire", "shipping routes reopen", "supply restored"),
     },
     "Wheat": {
-        2: ("wheat export ban", "wheat export restriction", "drought", "crop damage",
+        2: ("wheat export ban", "wheat export restriction", "wheat drought", "drought damages wheat", "wheat crop damage",
             "wheat harvest downgrade", "wheat production forecast cut", "black sea disruption"),
         -2: ("wheat harvest forecast increase", "bumper wheat crop", "wheat production forecast raised",
              "wheat export resumption", "record wheat harvest"),
     },
     "Corn": {
-        2: ("corn export ban", "corn export restriction", "drought", "crop damage",
+        2: ("corn export ban", "corn export restriction", "corn drought", "drought damages corn", "corn crop damage",
             "corn harvest downgrade", "ethanol demand increase", "corn production forecast cut"),
         -2: ("corn harvest forecast increase", "bumper corn crop", "corn production forecast raised",
              "record corn harvest", "ethanol demand decline"),
     },
     "Soybeans": {
-        2: ("soybean export ban", "soybean export restriction", "drought", "crop damage",
+        2: ("soybean export ban", "soybean export restriction", "soybean drought", "drought damages soybean", "soybean crop damage",
             "china import demand", "china buys soybeans", "soybean harvest downgrade",
             "soybean production forecast cut"),
         -2: ("china import decline", "china cancels soybean purchases",
