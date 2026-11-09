@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
-from oracle.analysis import build_signal, score_news, classify_market_state, rank_news_opportunities, build_news_led_signal
+from oracle.analysis import build_signal, score_news, classify_market_state, rank_news_opportunities, build_news_led_signal, rank_news_opportunities, build_news_led_signal
 from oracle.config import UNIVERSE
 from oracle.models import NewsItem, Quote
 
@@ -118,6 +118,43 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(trend, "RIALZISTA")
         self.assertEqual(swing, "RIBASSISTA")
         self.assertEqual(interpretation, "correzione ribassista contro trend")
+
+
+    def test_news_led_engine_does_not_select_without_asset_catalyst(self):
+        ranked = rank_news_opportunities(UNIVERSE, [self.item("Global markets mixed in quiet session")])
+        self.assertEqual(ranked, [])
+
+    def test_news_led_engine_selects_commodity_from_specific_catalyst(self):
+        ranked = rank_news_opportunities(UNIVERSE, [self.item("Drought damages wheat crop and threatens harvest")])
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0]["instrument"].name, "Wheat")
+        self.assertEqual(ranked[0]["direction"], "LONG")
+
+    def test_news_led_signal_requires_technical_confirmation(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        news = [self.item("Drought damages wheat crop and threatens harvest")]
+        score, matched = score_news(wheat, news)
+        quote = Quote("ZW=F", 590, 589, 4, self.now, "test", 588, 580, 58, 592, 575)
+        signal, status = build_news_led_signal(wheat, quote, score, matched)
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.direction, "LONG")
+        self.assertEqual(status, "SIGNAL")
+        self.assertTrue(signal.news_urls)
+
+    def test_news_led_signal_waits_when_technicals_conflict(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        news = [self.item("Drought damages wheat crop and threatens harvest")]
+        score, matched = score_news(wheat, news)
+        quote = Quote("ZW=F", 580, 590, 4, self.now, "test", 585, 595, 40, 600, 575)
+        signal, status = build_news_led_signal(wheat, quote, score, matched)
+        self.assertIsNone(signal)
+        self.assertIn("WAIT_TECHNICAL_CONFLICT", status)
+
+    def test_news_led_signal_does_not_emit_from_technical_only_setup(self):
+        quote = Quote("GC=F", 2010, 2005, 10, self.now, "test", 2005, 1990, 60, 2008, 1980)
+        signal, status = build_news_led_signal(self.gold, quote, 0, [])
+        self.assertIsNone(signal)
+        self.assertEqual(status, "NEWS_NOT_SELECTED")
 
 if __name__ == "__main__":
     unittest.main()
