@@ -189,4 +189,4 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
                  "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now,
-                  setup_type), setup_type
+                  setup_type), ("SIGNAL" if setup_type == "CONFIRMED" else "EARLY_SETUP")
