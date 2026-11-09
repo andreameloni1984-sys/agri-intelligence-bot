@@ -1,7 +1,7 @@
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import yfinance as yf
-from .config import UNIVERSE
+from .config import UNIVERSE, MAX_QUOTE_AGE_MINUTES
 from .models import Quote
 
 def _symbol_history(data: pd.DataFrame, symbol: str):
@@ -31,6 +31,17 @@ def fetch_quotes() -> dict[str, Quote]:
                     print(f"[MARKET] symbol missing in batch: {symbol}")
                     continue
                 hist = hist.dropna(subset=["Close", "High", "Low"])
+                # Yahoo timestamps 15m bars at their opening time; ignore any still-open candle.
+                now = datetime.now(timezone.utc)
+                closed_before = now - timedelta(minutes=15)
+                if hist.index.tz is None:
+                    hist.index = hist.index.tz_localize("UTC")
+                else:
+                    hist.index = hist.index.tz_convert("UTC")
+                hist = hist.loc[hist.index <= closed_before]
+                if hist.empty:
+                    print(f"[MARKET] no completed 15m candle for {symbol}")
+                    continue
                 # EMA200 needs a sufficiently long history; do not emit signals from a partial warm-up.
                 if len(hist) < 220:
                     print(f"[MARKET] insufficient candles for {symbol}: {len(hist)} (need 220)")
@@ -41,7 +52,12 @@ def fetch_quotes() -> dict[str, Quote]:
                     (hist["High"] - hist["Close"].shift()).abs(),
                     (hist["Low"] - hist["Close"].shift()).abs()], axis=1).max(axis=1)
                 atr = float(tr.rolling(14, min_periods=14).mean().iloc[-1])
-                timestamp = hist.index[-1].to_pydatetime()
+                # A 15m candle timestamp is its open time; freshness is measured from its close.
+                timestamp = hist.index[-1].to_pydatetime() + timedelta(minutes=15)
+                age_minutes = (now - timestamp).total_seconds() / 60
+                if age_minutes < -1 or age_minutes > MAX_QUOTE_AGE_MINUTES:
+                    print(f"[MARKET] stale completed candle {symbol}: age={int(age_minutes)}m; quote rejected")
+                    continue
                 if timestamp.tzinfo is None:
                     timestamp = timestamp.replace(tzinfo=timezone.utc)
                 if close <= 0 or previous <= 0 or pd.isna(atr) or atr <= 0:
