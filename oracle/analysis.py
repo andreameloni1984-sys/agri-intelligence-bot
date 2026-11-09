@@ -218,3 +218,66 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now,
                   setup_type), ("SIGNAL" if setup_type == "CONFIRMED" else "EARLY_SETUP")
+
+
+def rank_news_opportunities(instruments, news: list[NewsItem], minimum_score: int = 2):
+    """Rank all monitored commodities by asset-specific, dated news catalysts."""
+    ranked = []
+    for instrument in instruments:
+        score, matched = score_news(instrument, news)
+        if abs(score) < minimum_score or not matched:
+            continue
+        ranked.append({
+            "instrument": instrument,
+            "direction": "LONG" if score > 0 else "SHORT",
+            "news_score": score,
+            "matched": matched,
+        })
+    return sorted(ranked, key=lambda item: (abs(item["news_score"]), item["matched"][0].published), reverse=True)
+
+
+def build_news_led_signal(instrument, quote: Quote | None, news_score: int, matched: list[NewsItem]):
+    """Create a signal only when news selects the asset and technicals confirm its direction."""
+    now = datetime.now(timezone.utc)
+    if abs(news_score) < 2 or not matched:
+        return None, "NEWS_NOT_SELECTED"
+    if quote is None:
+        return None, "NEWS_SELECTED_NO_QUOTE"
+    age = (now - quote.timestamp).total_seconds() / 60
+    if age < -5 or age > MAX_QUOTE_AGE_MINUTES:
+        return None, f"STALE_QUOTE_{int(age)}m"
+    if quote.atr <= 0 or quote.last <= 0 or quote.previous_close <= 0:
+        return None, "INVALID_MARKET_DATA"
+
+    direction = "LONG" if news_score > 0 else "SHORT"
+    technical_score, technical_notes = technical_reading(quote)
+    if technical_score == 0:
+        return None, "WAIT_TECHNICAL_NOT_CONFIRMED"
+    technical_direction = "LONG" if technical_score > 0 else "SHORT"
+    if technical_direction != direction:
+        return None, f"WAIT_TECHNICAL_CONFLICT_NEWS_{direction}_TECH_{technical_direction}"
+
+    setup_type = "CONFIRMED" if abs(technical_score) >= 3 else "EARLY_SETUP"
+    move_pct = ((quote.last / quote.previous_close) - 1) * 100
+    confidence = min(85, 50 + min(20, abs(news_score) * 4) + min(15, abs(technical_score) * 3))
+    if setup_type == "EARLY_SETUP":
+        confidence = min(confidence, 59)
+    risk = 1.5 * quote.atr
+    if direction == "LONG":
+        sl, tp1, tp2 = quote.last - risk, quote.last + risk * 1.5, quote.last + risk * 2.5
+    else:
+        sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
+    trend, swing, interpretation = classify_market_state(quote)
+    evidence = "; ".join(f"{item.source}: {item.title}" for item in matched[:3])
+    rationale = (
+        f"News-led selection: catalyst score {news_score:+d}; evidence: {evidence}. "
+        f"Technical confirmation {technical_direction} (score {technical_score:+d}); "
+        f"primary trend {trend}; short-term move {swing} ({interpretation}); "
+        f"15m price change {move_pct:+.3f}%; quote age {int(age)}m. "
+        "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels."
+    )
+    return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
+                  move_pct, quote.last, sl, tp1, tp2, rationale,
+                  [item.url for item in matched[:5]], now, setup_type), (
+                      "SIGNAL" if setup_type == "CONFIRMED" else "EARLY_SETUP"
+                  )
