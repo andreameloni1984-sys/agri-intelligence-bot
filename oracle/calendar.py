@@ -5,6 +5,7 @@ unavailable or its format changes, that source returns no events; dates are
 never inferred from news headlines.
 """
 from datetime import date, datetime, time, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 import re
@@ -180,7 +181,7 @@ def parse_wasde_calendar(html: str, now: datetime | None = None, days: int = 180
 
 
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
-    """Fetch official release schedules; each source fails independently."""
+    """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
     sources = (
         (f"https://www.bls.gov/schedule/{current_year}/", parse_bls_calendar),
@@ -188,15 +189,23 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
         (FED_URL, lambda html: parse_fomc_calendar(html, days=days)),
         (USDA_URL, lambda html: parse_wasde_calendar(html, days=days)),
     )
-    events = []
-    for url, parser in sources:
+
+    def fetch_one(url, parser):
         try:
             response = requests.get(url, timeout=15, headers={"User-Agent": USER_AGENT})
             response.raise_for_status()
             parsed = parser(response.text)
             print(f"[CALENDAR] source={url} events={len(parsed)}")
-            events.extend(parsed)
+            return parsed
         except Exception as exc:
-            print(f"[CALENDAR] source unavailable {url}: {exc}")
+            print(f"[CALENDAR] source unavailable {url}: {type(exc).__name__}")
+            return []
+
+    events = []
+    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+        futures = [pool.submit(fetch_one, url, parser) for url, parser in sources]
+        for future in as_completed(futures):
+            events.extend(future.result())
+
     unique = {item["id"]: item for item in events}
     return sorted(unique.values(), key=lambda item: item["date_utc"])
