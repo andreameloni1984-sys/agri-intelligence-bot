@@ -140,3 +140,29 @@ def get_upcoming_events(limit=8):
         WHERE date_utc >= ? ORDER BY date_utc LIMIT ?""", (now, limit)).fetchall()
     db.close()
     return [dict(row) for row in rows]
+
+
+def get_scheduler_state(key, default=None):
+    db = connect()
+    db.execute("""CREATE TABLE IF NOT EXISTS scheduler_state (
+        key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    row = db.execute("SELECT value FROM scheduler_state WHERE key=?", (key,)).fetchone()
+    db.commit()
+    db.close()
+    if row is None:
+        return default
+    try:
+        return json.loads(row["value"])
+    except (TypeError, ValueError):
+        return default
+
+
+def save_scheduler_state(key, value):
+    db = connect()
+    db.execute("""CREATE TABLE IF NOT EXISTS scheduler_state (
+        key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    db.execute("""INSERT OR REPLACE INTO scheduler_state(key,value,updated_at)
+        VALUES (?,?,?)""",
+        (key, json.dumps(value, ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    db.close()
