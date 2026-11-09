@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
-from oracle.analysis import build_signal, score_news, classify_market_state
+from oracle.analysis import build_signal, score_news, classify_market_state, rank_news_opportunities, build_news_led_signal
 from oracle.config import UNIVERSE
 from oracle.models import NewsItem, Quote
 
