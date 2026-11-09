@@ -27,7 +27,10 @@ def env_bool(name: str, default: bool) -> bool:
     return default if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_RSS_URLS = [
-    "https://www.whitehouse.gov/feed/",
+    "https://www.whitehouse.gov/news/feed/",
+    "https://www.whitehouse.gov/presidential-actions/feed/",
+    "https://www.whitehouse.gov/briefings-statements/feed/",
+    "https://www.whitehouse.gov/releases/feed/",
     "https://www.trumpstruth.org/feed",
     "https://www.federalreserve.gov/feeds/press_all.xml",
     "https://www.bls.gov/feed/bls_latest.rss",
