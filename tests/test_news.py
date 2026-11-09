@@ -5,8 +5,12 @@ fake_feedparser = types.ModuleType("feedparser")
 fake_feedparser.parse = lambda payload: None
 sys.modules.setdefault("feedparser", fake_feedparser)
 from oracle.news import _parse_date, _fetch_feed
+from oracle.config import RSS_URLS
 
 class NewsTests(unittest.TestCase):
+    def test_reuters_google_news_feed_is_configured(self):
+        self.assertTrue(any("news.google.com/rss/search" in url and "site%3Areuters.com" in url for url in RSS_URLS))
+
     def test_undated_news_is_not_fabricated_as_current(self):
         self.assertIsNone(_parse_date({"title": "undated"}))
     def test_published_timestamp_is_timezone_aware(self):
