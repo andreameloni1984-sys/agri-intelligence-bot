@@ -27,6 +27,33 @@ def _dict_to_news(row):
     return NewsItem(row["title"], row["url"], published, row["source"], row.get("summary", ""))
 
 
+def _candidate_to_dict(candidate):
+    return {
+        "symbol": candidate["instrument"].symbol,
+        "direction": candidate["direction"],
+        "news_score": candidate["news_score"],
+        "matched": [_news_to_dict(item) for item in candidate["matched"]],
+    }
+
+
+def _dict_to_candidate(row):
+    if not row:
+        return None
+    instrument = next((item for item in UNIVERSE if item.symbol == row.get("symbol")), None)
+    if instrument is None:
+        return None
+    matched = [_dict_to_news(item) for item in row.get("matched", [])]
+    if not matched:
+        return None
+    return {"instrument": instrument, "direction": row["direction"],
+            "news_score": int(row["news_score"]), "matched": matched}
+
+
+def _choose_one(ranked):
+    """Concentrate the monitoring cycle on the single strongest news candidate."""
+    return ranked[0] if ranked else None
+
+
 def main():
     started = datetime.now(timezone.utc)
     errors = []
@@ -43,8 +70,8 @@ def main():
             due = True
 
     cached_rows = get_scheduler_state("cached_news", [])
-    cached_news = []
     cutoff = started - timedelta(hours=NEWS_CACHE_HOURS)
+    cached_news = []
     for row in cached_rows:
         try:
             item = _dict_to_news(row)
@@ -54,31 +81,31 @@ def main():
             continue
 
     if due:
-        mode = "NEWS_REFRESH"
+        mode = "NEWS_SELECTION"
         try:
             fresh_news = collect_news()
             merged = {item.url: item for item in cached_news}
             merged.update({item.url: item for item in fresh_news if item.url})
             news = sorted(merged.values(), key=lambda x: x.published, reverse=True)
+            ranked = rank_news_opportunities(UNIVERSE, news, MIN_ABS_NEWS_SCORE)
+            candidate = _choose_one(ranked)
             save_scheduler_state("cached_news", [_news_to_dict(x) for x in news])
+            save_scheduler_state("active_candidate", _candidate_to_dict(candidate) if candidate else None)
             save_scheduler_state("last_news_scan", started.isoformat())
-            print(f"[NEWS] refreshed fresh={len(fresh_news)} retained={len(news)}")
+            print(f"[NEWS] refreshed fresh={len(fresh_news)} candidates={len(ranked)}")
         except Exception as exc:
             errors.append(f"news:{type(exc).__name__}")
             news = cached_news
-            print(f"[NEWS] refresh failed: {type(exc).__name__}; using cached={len(news)}")
+            candidate = _dict_to_candidate(get_scheduler_state("active_candidate"))
+            mode = "NEWS_REFRESH_FAILED_KEEP_ACTIVE"
+            print(f"[NEWS] refresh failed: {type(exc).__name__}; retaining active candidate")
     else:
-        mode = "ACTIVE_MONITOR"
+        mode = "SINGLE_ASSET_MONITOR"
         news = cached_news
-        print(f"[NEWS] refresh skipped; cached={len(news)}")
+        candidate = _dict_to_candidate(get_scheduler_state("active_candidate"))
+        print("[NEWS] refresh skipped; monitoring persisted single candidate")
 
-    ranked = rank_news_opportunities(UNIVERSE, news, MIN_ABS_NEWS_SCORE)
-    selected = {item["instrument"].symbol: item for item in ranked}
-    symbols = [item.symbol for item in UNIVERSE if item.symbol in selected]
-    names = [item["instrument"].name for item in ranked]
-    print(f"[INTELLIGENCE] mode={mode} news_selected={len(ranked)} instruments={','.join(names) or 'none'}")
-
-    if due:
+    if due and mode == "NEWS_SELECTION":
         try:
             calendar = fetch_economic_calendar(days=45)
             save_calendar_events(calendar)
@@ -88,50 +115,50 @@ def main():
             print(f"[CALENDAR] refresh failed: {type(exc).__name__}")
 
     quotes = {}
-    if symbols:
+    instrument = candidate["instrument"] if candidate else None
+    if instrument:
         try:
-            quotes = fetch_quotes(symbols)
+            quotes = fetch_quotes([instrument.symbol])
             save_quotes(quotes)
         except Exception as exc:
             errors.append(f"quotes:{type(exc).__name__}")
             print(f"[MARKET] quote fetch failed: {type(exc).__name__}")
     else:
-        print("[MARKET] no news-selected commodity; quote request skipped")
+        print("[MARKET] no single news-backed candidate; no market quote request")
 
     directional = 0
-    for instrument in UNIVERSE:
-        opportunity = selected.get(instrument.symbol)
-        if opportunity is None:
-            continue
+    status = "NO_NEWS_CANDIDATE"
+    if candidate and instrument:
         signal, status = build_news_led_signal(
             instrument, quotes.get(instrument.symbol),
-            opportunity["news_score"], opportunity["matched"]
+            candidate["news_score"], candidate["matched"]
         )
         is_new = save_result(signal, instrument.name, instrument.symbol, status)
         if signal:
-            directional += 1
+            directional = 1
             print(f"[SIGNAL] {signal.instrument} {signal.direction} "
                   f"news_score={signal.news_score:+d} confidence={signal.confidence} new={is_new}")
             if is_new and not send_telegram(signal):
                 delete_signal(signal)
         else:
-            print(f"[SELECTED / WAIT] {instrument.name}: {status}")
+            print(f"[SELECTED / WAIT] {instrument.name} {candidate['direction']}: {status}")
 
     save_scan_meta(started, len(news), len(quotes))
-    outcome = f"SEGNALI: {directional}" if directional else "NESSUN SEGNALE"
+    selected_label = (f"{instrument.name} {candidate['direction']} "
+                      f"(news {candidate['news_score']:+d})") if candidate else "nessuna"
+    outcome = f"SEGNALE {directional}" if directional else status
     heartbeat = (
-        f"🛰️ STELLA ROSSA — CONTROLLO SCANSIONE\n"
-        f"🕒 {started.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-        f"Modalità: {mode} (notizie ogni {NEWS_SCAN_MINUTES} min)\n"
-        f"Notizie in archivio: {len(news)}\n"
-        f"Materie selezionate: {', '.join(names) if names else 'nessuna'}\n"
-        f"Quotazioni valide: {len(quotes)}/{len(symbols)} selezionate\n"
-        f"Esito: {outcome}\n"
-        f"Errori: {', '.join(errors) if errors else 'nessuno'}\n"
-        f"Ricerca informativa / paper only — nessun ordine."
+        f"🛰️ STELLA ROSSA — CONTROLLO SCANSIONE\\n"
+        f"🕒 {started.strftime('%Y-%m-%d %H:%M:%S UTC')}\\n"
+        f"Modalità: {mode} (notizie ogni {NEWS_SCAN_MINUTES} min)\\n"
+        f"Unica materia seguita: {selected_label}\\n"
+        f"Quotazioni valide: {len(quotes)}/{1 if candidate else 0}\\n"
+        f"Esito: {outcome}\\n"
+        f"Errori: {', '.join(errors) if errors else 'nessuno'}\\n"
+        f"Paper only — nessun ordine reale."
     )
     heartbeat_sent = send_telegram_status(heartbeat)
-    print(f"[DONE] mode={mode} news={len(news)} selected={len(symbols)} "
+    print(f"[DONE] mode={mode} active={instrument.symbol if instrument else 'none'} "
           f"quotes={len(quotes)} directional={directional} heartbeat_sent={heartbeat_sent}")
 
 
