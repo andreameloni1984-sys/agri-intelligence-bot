@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from oracle import storage
 from oracle.market import fetch_quotes
+from oracle.main import _choose_one
 
 
 class SchedulerTests(unittest.TestCase):
@@ -22,6 +23,12 @@ class SchedulerTests(unittest.TestCase):
                     storage.get_scheduler_state("cached_news"),
                     [{"title": "Wheat drought"}],
                 )
+
+    def test_only_top_ranked_news_candidate_is_selected(self):
+        first = {"instrument": "Gold", "news_score": 6}
+        second = {"instrument": "Wheat", "news_score": 4}
+        self.assertIs(_choose_one([first, second]), first)
+        self.assertIsNone(_choose_one([]))
 
     @patch("oracle.market.yf.download")
     def test_empty_active_universe_skips_market_provider(self, download):
