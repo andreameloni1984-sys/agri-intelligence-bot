@@ -81,6 +81,81 @@ CATALYST_RULES = {
     },
 }
 
+# Cross-asset macro transmission: indirect drivers can affect contracts
+# even when the headline does not name the commodity. Price action must confirm.
+MACRO_CATALYST_RULES = {
+    "Gold": {
+        2: ("dollar weakens", "dollar falls", "dollar slips", "dxy falls", "dollar index falls",
+            "real yields fall", "treasury real yields decline", "fed signals rate cuts",
+            "geopolitical risk rises", "iran tensions escalate", "middle east tensions escalate",
+            "war risk increases", "central bank gold buying"),
+        -2: ("dollar strengthens", "dollar rises", "dxy rises", "dollar index rises",
+             "real yields rise", "treasury yields jump", "fed signals rate hike",
+             "iran diplomatic breakthrough", "iran talks progress", "middle east de-escalation",
+             "ceasefire hopes rise"),
+    },
+    "Copper": {
+        2: ("china stimulus", "china credit expands", "china infrastructure spending",
+            "china manufacturing expands", "china pmi rises", "china imports rise",
+            "dollar weakens", "dxy falls", "copper inventories fall", "shanghai copper stocks fall"),
+        -2: ("china slowdown", "china pmi falls", "china manufacturing contracts",
+             "china property crisis", "china imports fall", "dollar strengthens",
+             "dxy rises", "copper inventories build", "shanghai copper stocks rise"),
+    },
+    "Platinum": {
+        2: ("dollar weakens", "dxy falls", "real yields fall", "auto production rises",
+            "vehicle sales rise", "china stimulus", "south africa mine disruption"),
+        -2: ("dollar strengthens", "dxy rises", "real yields rise", "auto production falls",
+             "vehicle sales fall", "electric vehicle adoption accelerates"),
+    },
+    "Palladium": {
+        2: ("dollar weakens", "dxy falls", "auto production rises", "vehicle sales rise",
+            "south africa mine disruption", "russia supply disruption"),
+        -2: ("dollar strengthens", "dxy rises", "auto production falls",
+             "vehicle sales fall", "electric vehicle adoption accelerates"),
+    },
+    "WTI": {
+        2: ("iran tensions escalate", "middle east tensions escalate", "hormuz threatened",
+            "strait of hormuz closure", "russia oil sanctions tighten", "opec cuts output",
+            "eia crude inventories fall", "us crude stocks fall", "global demand outlook improves",
+            "china demand improves"),
+        -2: ("iran diplomatic breakthrough", "iran talks progress", "middle east de-escalation",
+             "ceasefire hopes rise", "hormuz shipping resumes", "opec raises output",
+             "eia crude inventories rise", "us crude stocks rise", "global demand outlook worsens",
+             "china demand weakens"),
+    },
+    "Brent": {
+        2: ("iran tensions escalate", "middle east tensions escalate", "hormuz threatened",
+            "strait of hormuz closure", "russia oil sanctions tighten", "opec cuts output",
+            "global demand outlook improves", "china demand improves", "tanker attacks"),
+        -2: ("iran diplomatic breakthrough", "iran talks progress", "middle east de-escalation",
+             "ceasefire hopes rise", "hormuz shipping resumes", "opec raises output",
+             "global demand outlook worsens", "china demand weakens", "shipping routes reopen"),
+    },
+    "Wheat": {
+        2: ("black sea shipping disrupted", "black sea ports attacked",
+            "russia ukraine grain exports disrupted", "dollar weakens", "dxy falls",
+            "wheat export corridor closes"),
+        -2: ("black sea shipping resumes", "black sea corridor reopens",
+             "russia ukraine grain deal", "wheat export corridor reopens",
+             "dollar strengthens", "dxy rises"),
+    },
+    "Corn": {
+        2: ("dollar weakens", "dxy falls", "crude oil rises", "ethanol margins improve",
+            "usda corn stocks cut", "corn export sales rise", "brazil drought worsens"),
+        -2: ("dollar strengthens", "dxy rises", "crude oil falls", "ethanol margins weaken",
+             "usda corn stocks rise", "corn export sales fall", "brazil crop outlook improves"),
+    },
+    "Soybeans": {
+        2: ("dollar weakens", "dxy falls", "china soybean purchases rise",
+            "china resumes soybean purchases", "usda soybean stocks cut",
+            "soybean export sales rise", "brazil drought worsens"),
+        -2: ("dollar strengthens", "dxy rises", "china cancels soybean purchases",
+             "china soybean purchases fall", "usda soybean stocks rise",
+             "soybean export sales fall", "brazil crop outlook improves"),
+    },
+}
+
 def _phrase_present(text: str, phrase: str) -> bool:
     """Ignore a catalyst phrase when it is explicitly negated nearby."""
     position = text.find(phrase)
@@ -96,13 +171,15 @@ def score_news(instrument, news: list[NewsItem]):
     """Score dated, already-fetched asset catalysts; no network or blocking work."""
     legacy = ASSET_EFFECTS.get(instrument.name, {})
     rules = CATALYST_RULES.get(instrument.name, {})
+    macro_rules = MACRO_CATALYST_RULES.get(instrument.name, {})
     total, matched = 0, []
     for item in news:
         text = f"{item.title} {item.summary}".lower()
         item_score = sum(weight for phrase, weight in legacy.items() if _phrase_present(text, phrase))
-        for weight, phrases in rules.items():
-            if any(_phrase_present(text, phrase) for phrase in phrases):
-                item_score += weight
+        for rule_set in (rules, macro_rules):
+            for weight, phrases in rule_set.items():
+                if any(_phrase_present(text, phrase) for phrase in phrases):
+                    item_score += weight
         item_score = max(-2, min(2, item_score))
         if item_score:
             total += item_score
