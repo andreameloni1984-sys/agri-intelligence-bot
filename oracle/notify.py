@@ -6,7 +6,8 @@ def send_telegram(signal: Signal):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[TELEGRAM] credentials missing; alert not sent")
         return False
-    message = (f"🛰️ ORACLE — {signal.direction}\n"
+    label = "EARLY SETUP — da confermare" if signal.setup_type == "EARLY_SETUP" else "SEGNALE CONFERMATO"
+    message = (f"🔴 STELLA ROSSA — {label} — {signal.direction}\n"
         f"Strumento: {signal.instrument} ({signal.symbol})\n"
         f"Confidenza euristica: {signal.confidence}/100\n"
         f"Prezzo riferimento: {signal.reference_price:.4f}\n"
