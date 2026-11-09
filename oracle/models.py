@@ -38,3 +38,4 @@ class Signal:
     rationale: str
     news_urls: list[str]
     created_at: datetime
+    setup_type: str = "CONFIRMED"
