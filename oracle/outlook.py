@@ -5,7 +5,7 @@ import requests
 from .config import UNIVERSE, MAX_QUOTE_AGE_MINUTES, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from .market import fetch_quotes
 from .news import collect_news
-from .analysis import technical_reading, score_news, classify_market_state
+from .analysis import technical_reading, rank_news_opportunities, classify_market_state
 from .calendar import fetch_economic_calendar
 
 def build_outlook(quotes, news, events, now=None):
@@ -13,36 +13,37 @@ def build_outlook(quotes, news, events, now=None):
     lines = [
         "☭ КРАСНАЯ ЗВЕЗДА — PROSPETTIVA MERCATI",
         f"Prossima seduta | {now.astimezone().strftime('%d/%m/%Y %H:%M %Z')}",
-        "Direzione preliminare, non segnale operativo.",
+        "Selezione fondamentale dalle notizie; tecnica come conferma, non come selettore.",
         "━━━━━━━━━━━━━━━━━━",
     ]
-    for instrument in UNIVERSE:
+    ranked = rank_news_opportunities(UNIVERSE, news)
+    selected = {item["instrument"].symbol: item for item in ranked}
+    lines.append(f"OPPORTUNITÀ DA NOTIZIE: {len(ranked)} | UNIVERSO MONITORATO: {len(UNIVERSE)}")
+    for rank, item in enumerate(ranked, 1):
+        instrument = item["instrument"]
         quote = quotes.get(instrument.symbol)
+        lines.append(f"#{rank} {instrument.name}: TESI {item['direction']} | news {item['news_score']:+d}")
+        headlines = " | ".join(x.title for x in item["matched"][:2])
+        lines.append(f"  Catalizzatori: {headlines}")
         if quote is None:
-            lines.append(f"• {instrument.name}: DATI NON DISPONIBILI — nessuna previsione")
+            lines.append("  Conferma tecnica: dati non disponibili — ATTESA")
             continue
         age = (now - quote.timestamp).total_seconds() / 60
         if age < -5 or age > MAX_QUOTE_AGE_MINUTES:
-            lines.append(f"• {instrument.name}: DATI OBSOLETI ({int(age)} min) — nessuna previsione")
+            lines.append(f"  Conferma tecnica: quotazione obsoleta ({int(age)} min) — ATTESA")
             continue
-        score, notes = technical_reading(quote)
-        news_score, matched = score_news(instrument, news)
-        if score > 0:
-            bias = "LONG"
-        elif score < 0:
-            bias = "SHORT"
-        else:
-            bias = "NEUTRAL / ATTESA"
-        warning = ""
-        if (bias == "LONG" and news_score <= -2) or (bias == "SHORT" and news_score >= 2):
-            warning = " | NOTIZIE CONTRARIE"
-        elif matched and news_score * score > 0:
-            warning = " | notizie concordi"
+        technical_score, notes = technical_reading(quote)
+        technical_direction = "LONG" if technical_score > 0 else "SHORT" if technical_score < 0 else "NEUTRAL"
+        confirmation = "CONFERMATA" if technical_direction == item["direction"] and abs(technical_score) >= 2 else "NON CONFERMATA"
         trend, swing, interpretation = classify_market_state(quote)
-        detail = ", ".join(notes[:3]) if notes else "confluenza tecnica insufficiente"
-        lines.append(f"• {instrument.name}: {bias}{warning} | score tecnico {score:+d} | news {news_score:+d}")
-        lines.append(f"  Trend principale: {trend} | Breve periodo: {swing} — {interpretation}")
+        detail = ", ".join(notes[:3]) if notes else "indicatori tecnici incompleti"
+        lines.append(f"  Tecnica: {technical_direction} ({technical_score:+d}) — {confirmation}")
+        lines.append(f"  Trend: {trend} | Breve periodo: {swing} — {interpretation}")
         lines.append(f"  {detail}; prezzo {quote.last:.4f}; aggiornamento {int(age)} min fa")
+    lines.append("ALTRE COMMODITY MONITORATE")
+    for instrument in UNIVERSE:
+        if instrument.symbol not in selected:
+            lines.append(f"• {instrument.name}: monitorata — nessun catalizzatore notizie sufficiente")
     upcoming = [e for e in events if now <= datetime.fromisoformat(e["date_utc"]) <= now + timedelta(hours=36)]
     lines.extend(["━━━━━━━━━━━━━━━━━━", "CALENDARIO — prossime 36 ore"])
     if upcoming:
