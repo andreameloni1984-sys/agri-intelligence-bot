@@ -148,13 +148,13 @@ def main():
                       f"(news {candidate['news_score']:+d})") if candidate else "nessuna"
     outcome = f"SEGNALE {directional}" if directional else status
     heartbeat = (
-        f"🛰️ STELLA ROSSA — CONTROLLO SCANSIONE\\n"
-        f"🕒 {started.strftime('%Y-%m-%d %H:%M:%S UTC')}\\n"
-        f"Modalità: {mode} (notizie ogni {NEWS_SCAN_MINUTES} min)\\n"
-        f"Unica materia seguita: {selected_label}\\n"
-        f"Quotazioni valide: {len(quotes)}/{1 if candidate else 0}\\n"
-        f"Esito: {outcome}\\n"
-        f"Errori: {', '.join(errors) if errors else 'nessuno'}\\n"
+        f"🛰️ STELLA ROSSA — CONTROLLO SCANSIONE\n"
+        f"🕒 {started.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        f"Modalità: {mode} (notizie ogni {NEWS_SCAN_MINUTES} min)\n"
+        f"Unica materia seguita: {selected_label}\n"
+        f"Quotazioni valide: {len(quotes)}/{1 if candidate else 0}\n"
+        f"Esito: {outcome}\n"
+        f"Errori: {', '.join(errors) if errors else 'nessuno'}\n"
         f"Paper only — nessun ordine reale."
     )
     heartbeat_sent = send_telegram_status(heartbeat)
