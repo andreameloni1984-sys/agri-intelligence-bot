@@ -20,7 +20,7 @@ CATALYST_RULES = {
     "Gold": {
         2: ("geopolitical escalation", "military strike", "armed conflict", "safe haven demand",
             "central bank buying", "central banks buy", "gold purchases", "rate cut", "fed cuts rates",
-            "real yields fall", "dollar weakens", "dollar falls", "sanctions escalation", "iran peace deal", "iran agreement", "iran nuclear deal", "middle east ceasefire", "geopolitical de-escalation"),
+            "real yields fall", "dollar weakens", "dollar falls", "sanctions escalation"),
         -2: ("real yields rise", "dollar strengthens", "dollar rises", "rate hike",
              "fed raises rates", "central bank selling", "gold sales", "iran peace deal", "iran agreement", "middle east ceasefire", "geopolitical de-escalation", "sanctions lifted"),
     },
