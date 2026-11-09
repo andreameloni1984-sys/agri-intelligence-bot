@@ -79,6 +79,15 @@ class AnalysisTests(unittest.TestCase):
         score, _ = score_news(wti, [self.item("Oil supply disruption threatens exports")])
         self.assertEqual(score, 2)
 
+    def test_geopolitical_deescalation_maps_indirectly_to_oil_and_gold(self):
+        wti = next(x for x in UNIVERSE if x.name == "WTI")
+        score, matched = score_news(wti, [self.item("Iran peace deal reached; sanctions lifted")])
+        self.assertEqual(score, -2)
+        self.assertEqual(len(matched), 1)
+        score, matched = score_news(self.gold, [self.item("Middle East ceasefire agreement reached")])
+        self.assertEqual(score, -2)
+        self.assertEqual(len(matched), 1)
+
     def test_negative_supply_and_harvest_catalysts_are_mapped(self):
         wheat = next(x for x in UNIVERSE if x.name == "Wheat")
         score, matched = score_news(wheat, [self.item("Bumper wheat crop expected this season")])
