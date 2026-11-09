@@ -20,9 +20,9 @@ CATALYST_RULES = {
     "Gold": {
         2: ("geopolitical escalation", "military strike", "armed conflict", "safe haven demand",
             "central bank buying", "central banks buy", "gold purchases", "rate cut", "fed cuts rates",
-            "real yields fall", "dollar weakens", "dollar falls", "sanctions escalation"),
+            "real yields fall", "dollar weakens", "dollar falls", "sanctions escalation", "iran peace deal", "iran agreement", "iran nuclear deal", "middle east ceasefire", "geopolitical de-escalation"),
         -2: ("real yields rise", "dollar strengthens", "dollar rises", "rate hike",
-             "fed raises rates", "central bank selling", "gold sales"),
+             "fed raises rates", "central bank selling", "gold sales", "iran peace deal", "iran agreement", "middle east ceasefire", "geopolitical de-escalation", "sanctions lifted"),
     },
     "Copper": {
         2: ("china stimulus", "china announces stimulus", "manufacturing expansion",
@@ -50,14 +50,14 @@ CATALYST_RULES = {
             "us crude inventory draw", "crude stocks fall", "oil exports halt"),
         -2: ("opec raises production", "oil production increase", "crude inventory build",
              "crude stocks rise", "us crude inventory build", "demand slump",
-             "ceasefire", "shipping routes reopen"),
+             "ceasefire", "shipping routes reopen", "iran peace deal", "iran agreement", "iran nuclear deal", "sanctions lifted", "middle east ceasefire", "geopolitical de-escalation"),
     },
     "Brent": {
         2: ("opec production cut", "opec cuts output", "oil supply disruption",
             "shipping disruption", "tanker attack", "hormuz closure",
             "middle east escalation", "oil exports halt"),
         -2: ("opec raises production", "oil production increase", "global demand slump",
-             "ceasefire", "shipping routes reopen", "supply restored"),
+             "ceasefire", "shipping routes reopen", "supply restored", "iran peace deal", "iran agreement", "iran nuclear deal", "sanctions lifted", "middle east ceasefire", "geopolitical de-escalation"),
     },
     "Wheat": {
         2: ("wheat export ban", "wheat export restriction", "wheat drought", "drought damages wheat", "wheat crop damage",
