@@ -99,7 +99,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("strong bullish momentum", signal.rationale)
 
     def test_two_point_direction_is_reported_as_early_setup(self):
-        quote = Quote("GC=F", 2010, 2005, 10, self.now, "test", 2005, 1990, 50, 2020, 1980)
+        quote = Quote("GC=F", 2010, 2015, 10, self.now, "test", 2005, 1990, 50, 2020, 1980)
         signal, status = build_signal(self.gold, quote, [])
         self.assertEqual(status, "EARLY_SETUP")
         self.assertEqual(signal.setup_type, "EARLY_SETUP")
