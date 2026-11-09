@@ -24,3 +24,23 @@ def send_telegram(signal: Signal):
     except Exception as exc:
         print(f"[TELEGRAM] send error: {type(exc).__name__}")
         return False
+
+
+def send_telegram_status(message: str) -> bool:
+    """Send a scan heartbeat independently from trading-signal notifications."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[TELEGRAM] credentials missing; scan status not sent")
+        return False
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": message},
+            timeout=15,
+        )
+        response.raise_for_status()
+        accepted = bool(response.json().get("ok"))
+        print(f"[TELEGRAM] scan status accepted={accepted}")
+        return accepted
+    except Exception as exc:
+        print(f"[TELEGRAM] scan status error: {type(exc).__name__}")
+        return False
