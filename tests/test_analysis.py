@@ -139,6 +139,23 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(ranked[0]["instrument"].name, "Wheat")
         self.assertEqual(ranked[0]["direction"], "LONG")
 
+    def test_news_rank_excludes_catalysts_older_than_48_hours(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        stale = NewsItem("Drought damages wheat crop", "https://example.test/stale",
+                         self.now - timedelta(hours=60), "Reuters")
+        ranked = rank_news_opportunities(UNIVERSE, [stale])
+        self.assertEqual(ranked, [])
+
+    def test_news_rank_prefers_fresh_evidence_over_old_archive(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        fresh = NewsItem("Drought damages wheat crop", "https://example.test/fresh",
+                         self.now, "Reuters")
+        stale = NewsItem("Drought damages wheat crop", "https://example.test/old",
+                         self.now - timedelta(hours=30), "unknown")
+        fresh_rank = rank_news_opportunities([wheat], [fresh])
+        stale_rank = rank_news_opportunities([wheat], [stale])
+        self.assertGreater(fresh_rank[0]["rank_score"], stale_rank[0]["rank_score"])
+
     def test_news_led_signal_requires_technical_confirmation(self):
         wheat = next(x for x in UNIVERSE if x.name == "Wheat")
         news = [self.item("Drought damages wheat crop and threatens harvest")]
