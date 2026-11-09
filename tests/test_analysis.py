@@ -184,6 +184,53 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(score, 2)
         self.assertEqual(len(matched), 1)
 
+    def test_agricultural_macro_drivers_cover_wheat_corn_and_soybeans(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        corn = next(x for x in UNIVERSE if x.name == "Corn")
+        soy = next(x for x in UNIVERSE if x.name == "Soybeans")
+
+        wheat_score, wheat_news = score_news(
+            wheat, [self.item("Black Sea shipping disrupted after port attacks")]
+        )
+        corn_score, corn_news = score_news(
+            corn, [self.item("Ethanol margins improve as crude oil rises")]
+        )
+        soy_score, soy_news = score_news(
+            soy, [self.item("China resumes soybean purchases")]
+        )
+
+        self.assertEqual(wheat_score, 2)
+        self.assertEqual(corn_score, 2)
+        self.assertEqual(soy_score, 2)
+        self.assertEqual((len(wheat_news), len(corn_news), len(soy_news)), (1, 1, 1))
+
+    def test_agricultural_macro_bearish_drivers_cover_all_three_crops(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        corn = next(x for x in UNIVERSE if x.name == "Corn")
+        soy = next(x for x in UNIVERSE if x.name == "Soybeans")
+
+        wheat_score, _ = score_news(
+            wheat, [self.item("Black Sea shipping resumes and export corridor reopens")]
+        )
+        corn_score, _ = score_news(
+            corn, [self.item("Ethanol margins weaken as crude oil falls")]
+        )
+        soy_score, _ = score_news(
+            soy, [self.item("China cancels soybean purchases")]
+        )
+
+        self.assertEqual(wheat_score, -2)
+        self.assertEqual(corn_score, -2)
+        self.assertEqual(soy_score, -2)
+
+    def test_macro_dollar_move_transmits_to_agricultural_complex(self):
+        headline = [self.item("US dollar weakens as DXY falls")]
+        scores = {
+            name: score_news(next(x for x in UNIVERSE if x.name == name), headline)[0]
+            for name in ("Wheat", "Corn", "Soybeans")
+        }
+        self.assertEqual(scores, {"Wheat": 2, "Corn": 2, "Soybeans": 2})
+
     def test_news_led_signal_requires_technical_confirmation(self):
         wheat = next(x for x in UNIVERSE if x.name == "Wheat")
         news = [self.item("Drought damages wheat crop and threatens harvest")]
