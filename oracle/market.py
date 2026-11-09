@@ -14,9 +14,13 @@ def _symbol_history(data: pd.DataFrame, symbol: str):
         return data.xs(symbol, axis=1, level=1).copy()
     return None
 
-def fetch_quotes() -> dict[str, Quote]:
-    """Fetch the whole universe in one provider request; missing symbols fail closed."""
-    symbols = [item.symbol for item in UNIVERSE]
+def fetch_quotes(symbols: list[str] | tuple[str, ...] | None = None) -> dict[str, Quote]:
+    """Fetch only requested instruments; default remains the full universe for compatibility."""
+    symbols = list(symbols) if symbols is not None else [item.symbol for item in UNIVERSE]
+    symbols = list(dict.fromkeys(symbols))
+    if not symbols:
+        print("[MARKET] no active instruments; quote request skipped")
+        return {}
     try:
         data = yf.download(tickers=" ".join(symbols), period="60d", interval="15m",
                            auto_adjust=False, group_by="ticker", progress=False, threads=False)
