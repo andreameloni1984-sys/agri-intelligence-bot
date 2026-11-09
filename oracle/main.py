@@ -54,6 +54,11 @@ def _choose_one(ranked):
     return ranked[0] if ranked else None
 
 
+def _should_run_cycle(news_scan_due, candidate):
+    """Run when a news refresh is due or a single candidate is active."""
+    return bool(news_scan_due or candidate is not None)
+
+
 def main():
     started = datetime.now(timezone.utc)
     errors = []
@@ -104,6 +109,10 @@ def main():
         news = cached_news
         candidate = _dict_to_candidate(get_scheduler_state("active_candidate"))
         print("[NEWS] refresh skipped; monitoring persisted single candidate")
+
+    if not _should_run_cycle(due, candidate):
+        print("[IDLE] no active candidate and news refresh not due; no quote, calendar or Telegram calls")
+        return
 
     if due and mode == "NEWS_SELECTION":
         try:
