@@ -220,20 +220,63 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
                   setup_type), ("SIGNAL" if setup_type == "CONFIRMED" else "EARLY_SETUP")
 
 
+def _source_weight(source: str) -> float:
+    """Conservative source weighting; unknown feeds receive no bonus."""
+    name = (source or "").lower()
+    if any(token in name for token in ("reuters", "associated press", "ap news", "bloomberg")):
+        return 1.20
+    if any(token in name for token in ("federal reserve", "eia", "bls", "usda", "white house", "opec")):
+        return 1.15
+    if any(token in name for token in ("cme", "ice", "cftc")):
+        return 1.10
+    return 1.0
+
+
+def _freshness_weight(published: datetime, now: datetime) -> float:
+    """Older headlines decay smoothly; stale archive items cannot dominate."""
+    age_hours = max(0.0, (now - published).total_seconds() / 3600)
+    if age_hours <= 3:
+        return 1.0
+    if age_hours <= 12:
+        return 0.85
+    if age_hours <= 24:
+        return 0.65
+    if age_hours <= 48:
+        return 0.40
+    return 0.0
+
+
 def rank_news_opportunities(instruments, news: list[NewsItem], minimum_score: int = 2):
-    """Rank all monitored commodities by asset-specific, dated news catalysts."""
+    """Rank candidates by causal catalyst strength, freshness and independent corroboration.
+
+    Scores remain directional evidence, not probabilities. This stage only selects
+    one instrument; live technical confirmation is still required before a signal.
+    """
+    now = datetime.now(timezone.utc)
     ranked = []
     for instrument in instruments:
         score, matched = score_news(instrument, news)
         if abs(score) < minimum_score or not matched:
             continue
+        fresh = [(item, _freshness_weight(item.published, now)) for item in matched]
+        fresh = [(item, weight) for item, weight in fresh if weight > 0]
+        if not fresh:
+            continue
+        # Weight evidence by freshness and source quality, but cap corroboration:
+        # ten copies of one wire story must not outweigh independent catalysts.
+        evidence = sum(min(2.0, _source_weight(item.source)) * weight for item, weight in fresh)
+        sources = {item.source.lower() for item, _ in fresh if item.source}
+        corroboration = min(0.6, max(0, len(sources) - 1) * 0.2)
+        rank_score = abs(score) * (0.65 + min(1.0, evidence / 3.0) * 0.35) + corroboration
         ranked.append({
             "instrument": instrument,
             "direction": "LONG" if score > 0 else "SHORT",
             "news_score": score,
-            "matched": matched,
+            "rank_score": round(rank_score, 3),
+            "matched": [item for item, _ in sorted(fresh, key=lambda pair: pair[0].published, reverse=True)],
         })
-    return sorted(ranked, key=lambda item: (abs(item["news_score"]), item["matched"][0].published), reverse=True)
+    return sorted(ranked, key=lambda item: (item["rank_score"], abs(item["news_score"]),
+                                              item["matched"][0].published), reverse=True)
 
 
 def build_news_led_signal(instrument, quote: Quote | None, news_score: int, matched: list[NewsItem]):
