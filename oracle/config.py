@@ -33,6 +33,7 @@ DEFAULT_RSS_URLS = [
     "https://www.bls.gov/feed/bls_latest.rss",
     "https://www.eia.gov/rss/press_rss.xml",
     "http://www.nass.usda.gov/rss/news.xml",
+    "https://news.google.com/rss/search?q=site%3Areuters.com+when%3A24h&hl=en-US&gl=US&ceid=US%3Aen",
 ]
 RSS_URLS = [x.strip() for x in (os.getenv("NEWS_RSS_URLS") or ",".join(DEFAULT_RSS_URLS)).split(",") if x.strip()]
 GDELT_ENABLED = env_bool("GDELT_ENABLED", True)
