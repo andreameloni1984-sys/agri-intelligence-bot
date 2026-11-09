@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from oracle import storage
 from oracle.market import fetch_quotes
-from oracle.main import _choose_one
+from oracle.main import _choose_one, _should_run_cycle
 
 
 class SchedulerTests(unittest.TestCase):
@@ -23,6 +23,11 @@ class SchedulerTests(unittest.TestCase):
                     storage.get_scheduler_state("cached_news"),
                     [{"title": "Wheat drought"}],
                 )
+
+    def test_idle_cycle_skips_work_without_candidate(self):
+        self.assertFalse(_should_run_cycle(False, None))
+        self.assertTrue(_should_run_cycle(True, None))
+        self.assertTrue(_should_run_cycle(False, {"symbol": "GC=F"}))
 
     def test_only_top_ranked_news_candidate_is_selected(self):
         first = {"instrument": "Gold", "news_score": 6}
