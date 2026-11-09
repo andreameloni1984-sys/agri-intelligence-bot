@@ -156,6 +156,34 @@ class AnalysisTests(unittest.TestCase):
         stale_rank = rank_news_opportunities([wheat], [stale])
         self.assertGreater(fresh_rank[0]["rank_score"], stale_rank[0]["rank_score"])
 
+    def test_macro_dollar_weakness_transmits_to_multiple_metals(self):
+        copper = next(x for x in UNIVERSE if x.name == "Copper")
+        headline = [self.item("US dollar weakens as DXY falls")]
+        gold_score, _ = score_news(self.gold, headline)
+        copper_score, _ = score_news(copper, headline)
+        self.assertEqual(gold_score, 2)
+        self.assertEqual(copper_score, 2)
+
+    def test_geopolitical_deescalation_transmits_to_oil_and_gold(self):
+        wti = next(x for x in UNIVERSE if x.name == "WTI")
+        headline = [self.item("Iran diplomatic breakthrough raises ceasefire hopes")]
+        gold_score, _ = score_news(self.gold, headline)
+        oil_score, _ = score_news(wti, headline)
+        self.assertEqual(gold_score, -2)
+        self.assertEqual(oil_score, -2)
+
+    def test_black_sea_shipping_risk_transmits_to_wheat(self):
+        wheat = next(x for x in UNIVERSE if x.name == "Wheat")
+        score, matched = score_news(wheat, [self.item("Black Sea shipping disrupted after port attacks")])
+        self.assertEqual(score, 2)
+        self.assertEqual(len(matched), 1)
+
+    def test_china_stimulus_transmits_to_copper_without_copper_in_headline(self):
+        copper = next(x for x in UNIVERSE if x.name == "Copper")
+        score, matched = score_news(copper, [self.item("China announces new infrastructure spending package")])
+        self.assertEqual(score, 2)
+        self.assertEqual(len(matched), 1)
+
     def test_news_led_signal_requires_technical_confirmation(self):
         wheat = next(x for x in UNIVERSE if x.name == "Wheat")
         news = [self.item("Drought damages wheat crop and threatens harvest")]
