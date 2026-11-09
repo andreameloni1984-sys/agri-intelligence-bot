@@ -134,11 +134,9 @@ def technical_reading(quote: Quote):
         short_score += 1
         notes.append(f"RSI14={quote.rsi14:.1f} bearish")
     elif quote.rsi14 > 75:
-        long_score -= 1
-        notes.append(f"RSI14={quote.rsi14:.1f} overbought")
+        notes.append(f"RSI14={quote.rsi14:.1f} strong bullish momentum (extended)")
     elif quote.rsi14 < 25:
-        short_score -= 1
-        notes.append(f"RSI14={quote.rsi14:.1f} oversold")
+        notes.append(f"RSI14={quote.rsi14:.1f} strong bearish momentum (extended)")
     if quote.structure_high is not None and quote.last > quote.structure_high:
         long_score += 2
         notes.append("20-candle high breakout")
@@ -151,9 +149,9 @@ def technical_reading(quote: Quote):
     elif quote.last < quote.previous_close:
         short_score += 1
         notes.append("latest candle negative")
-    if long_score >= 3 and long_score > short_score:
+    if long_score >= 2 and long_score > short_score:
         return long_score, notes
-    if short_score >= 3 and short_score > long_score:
+    if short_score >= 2 and short_score > long_score:
         return -short_score, notes
     return 0, notes
 
@@ -170,6 +168,7 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     if technical_score == 0:
         return None, "TECHNICAL_SETUP_NOT_CONFIRMED"
     direction = "LONG" if technical_score > 0 else "SHORT"
+    setup_type = "CONFIRMED" if abs(technical_score) >= 3 else "EARLY_SETUP"
     news_score, matched = score_news(instrument, news)
     # News is contextual confirmation/contradiction, never a prerequisite for a technical setup.
     if (direction == "LONG" and news_score <= -2) or (direction == "SHORT" and news_score >= 2):
@@ -177,6 +176,8 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     move_pct = ((quote.last / quote.previous_close) - 1) * 100
     confidence = min(85, max(50, 50 + min(24, abs(technical_score) * 6) +
                              min(8, abs(move_pct) * 2) + (4 if news_score and news_score * technical_score > 0 else 0)))
+    if setup_type == "EARLY_SETUP":
+        confidence = min(confidence, 59)
     risk = 1.5 * quote.atr
     if direction == "LONG":
         sl, tp1, tp2 = quote.last - risk, quote.last + risk * 1.5, quote.last + risk * 2.5
@@ -187,4 +188,5 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
                  f"15m price change {move_pct:+.3f}%; quote age {int(age)}m; {news_note}. "
                  "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
-                  move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now), "SIGNAL"
+                  move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now,
+                  setup_type), setup_type
