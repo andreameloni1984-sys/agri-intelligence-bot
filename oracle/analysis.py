@@ -96,7 +96,7 @@ MACRO_CATALYST_RULES = {
     },
     "Copper": {
         2: ("china stimulus", "china credit expands", "china infrastructure spending",
-            "china manufacturing expands", "china pmi rises", "china imports rise",
+            "china announces new infrastructure spending", "china manufacturing expands", "china pmi rises", "china imports rise",
             "dollar weakens", "dxy falls", "copper inventories fall", "shanghai copper stocks fall"),
         -2: ("china slowdown", "china pmi falls", "china manufacturing contracts",
              "china property crisis", "china imports fall", "dollar strengthens",
