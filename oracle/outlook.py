@@ -5,7 +5,7 @@ import requests
 from .config import UNIVERSE, MAX_QUOTE_AGE_MINUTES, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from .market import fetch_quotes
 from .news import collect_news
-from .analysis import technical_reading, score_news
+from .analysis import technical_reading, score_news, classify_market_state
 from .calendar import fetch_economic_calendar
 
 def build_outlook(quotes, news, events, now=None):
@@ -38,8 +38,10 @@ def build_outlook(quotes, news, events, now=None):
             warning = " | NOTIZIE CONTRARIE"
         elif matched and news_score * score > 0:
             warning = " | notizie concordi"
+        trend, swing, interpretation = classify_market_state(quote)
         detail = ", ".join(notes[:3]) if notes else "confluenza tecnica insufficiente"
         lines.append(f"• {instrument.name}: {bias}{warning} | score tecnico {score:+d} | news {news_score:+d}")
+        lines.append(f"  Trend principale: {trend} | Breve periodo: {swing} — {interpretation}")
         lines.append(f"  {detail}; prezzo {quote.last:.4f}; aggiornamento {int(age)} min fa")
     upcoming = [e for e in events if now <= datetime.fromisoformat(e["date_utc"]) <= now + timedelta(hours=36)]
     lines.extend(["━━━━━━━━━━━━━━━━━━", "CALENDARIO — prossime 36 ore"])
@@ -51,6 +53,7 @@ def build_outlook(quotes, news, events, now=None):
         lines.append("• Nessun evento ufficiale rilevato nelle prossime 36 ore.")
     lines.extend([
         "━━━━━━━━━━━━━━━━━━",
+        "Trend principale: EMA50/EMA200. Breve periodo: prezzo vs EMA50 e RSI14.",
         "Lettura tecnica su candele 15m; notizie come contesto secondario.",
         "Prezzi Yahoo Finance: possibili ritardi. Nessun ordine eseguito.",
         "Confidenza non espressa: questa è una mappa direzionale, non una probabilità.",
