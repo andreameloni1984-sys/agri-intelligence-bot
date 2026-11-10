@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime, timezone, timedelta
-from oracle.analysis import build_signal, score_news, classify_market_state, rank_news_opportunities, build_news_led_signal, rank_news_opportunities, build_news_led_signal
+from oracle.analysis import build_signal, score_news, classify_market_state, rank_news_opportunities, build_news_led_signal, build_pre_news_scenario
 from oracle.config import UNIVERSE
 from oracle.models import NewsItem, Quote
 
@@ -130,6 +130,31 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(swing, "RIBASSISTA")
         self.assertEqual(interpretation, "correzione ribassista contro trend")
 
+
+    def test_pre_news_scenario_uses_existing_catalyst_without_market_prediction(self):
+        soy = next(x for x in UNIVERSE if x.name == "Soybeans")
+        event = [{"phase": "IN ARRIVO", "minutes_to_event": 20,
+                  "event": "USDA WASDE supply and demand report"}]
+        scenario = build_pre_news_scenario(
+            soy, [self.item("China resumes soybean purchases")], event
+        )
+        self.assertEqual(scenario["direction"], "LONG")
+        self.assertEqual(scenario["score"], 2)
+        self.assertEqual(scenario["confidence"], "bassa")
+
+    def test_pre_news_scenario_is_neutral_without_evidence(self):
+        soy = next(x for x in UNIVERSE if x.name == "Soybeans")
+        event = [{"phase": "IN ARRIVO", "minutes_to_event": 10,
+                  "event": "USDA WASDE supply and demand report"}]
+        scenario = build_pre_news_scenario(soy, [], event)
+        self.assertEqual(scenario["direction"], "NEUTRALE")
+        self.assertEqual(scenario["score"], 0)
+
+    def test_pre_news_scenario_does_not_run_outside_pre_release_window(self):
+        soy = next(x for x in UNIVERSE if x.name == "Soybeans")
+        event = [{"phase": "IN ARRIVO", "minutes_to_event": 45,
+                  "event": "USDA WASDE supply and demand report"}]
+        self.assertIsNone(build_pre_news_scenario(soy, [], event))
 
     def test_news_led_engine_does_not_select_without_asset_catalyst(self):
         ranked = rank_news_opportunities(UNIVERSE, [self.item("Global markets mixed in quiet session")])
