@@ -12,7 +12,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: oracle-scan
+  # Keep scheduled scans independent from push/manual runs.
+  # GitHub allows only one running and one pending run per concurrency group.
+  group: oracle-scan-${{ github.event_name }}
   cancel-in-progress: false
 jobs:
   scan:
