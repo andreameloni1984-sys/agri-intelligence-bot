@@ -8,7 +8,7 @@ from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
 )
-from .notify import send_telegram, send_telegram_status
+from .notify import send_telegram
 
 NEWS_SCAN_MINUTES = 30
 NEWS_CACHE_HOURS = 12
@@ -153,22 +153,9 @@ def main():
             print(f"[SELECTED / WAIT] {instrument.name} {candidate['direction']}: {status}")
 
     save_scan_meta(started, len(news), len(quotes))
-    selected_label = (f"{instrument.name} {candidate['direction']} "
-                      f"(news {candidate['news_score']:+d})") if candidate else "nessuna"
-    outcome = f"SEGNALE {directional}" if directional else status
-    heartbeat = (
-        f"🛰️ STELLA ROSSA — CONTROLLO SCANSIONE\n"
-        f"🕒 {started.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
-        f"Modalità: {mode} (notizie ogni {NEWS_SCAN_MINUTES} min)\n"
-        f"Unica materia seguita: {selected_label}\n"
-        f"Quotazioni valide: {len(quotes)}/{1 if candidate else 0}\n"
-        f"Esito: {outcome}\n"
-        f"Errori: {', '.join(errors) if errors else 'nessuno'}\n"
-        f"Paper only — nessun ordine reale."
-    )
-    heartbeat_sent = send_telegram_status(heartbeat)
     print(f"[DONE] mode={mode} active={instrument.symbol if instrument else 'none'} "
-          f"quotes={len(quotes)} directional={directional} heartbeat_sent={heartbeat_sent}")
+          f"quotes={len(quotes)} directional={directional} "
+          f"telegram_alerts_only={'enabled'}")
 
 
 if __name__ == "__main__":
