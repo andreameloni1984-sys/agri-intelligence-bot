@@ -209,3 +209,62 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
 
     unique = {item["id"]: item for item in events}
     return sorted(unique.values(), key=lambda item: item["date_utc"])
+
+
+# Scheduled releases mapped to the instruments they can materially affect.
+# Calendar events provide context only: they never invent a LONG/SHORT outcome.
+EVENT_ASSETS = {
+    "eia": {"WTI", "Brent"},
+    "petroleum status": {"WTI", "Brent"},
+    "wasde": {"Wheat", "Corn", "Soybeans"},
+    "wheat": {"Wheat"},
+    "corn": {"Corn"},
+    "soybean": {"Soybeans"},
+    "cpi": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "consumer price": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "ppi": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "producer price": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "employment situation": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "job openings": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "fomc": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "federal reserve": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "productivity": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "employment cost": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+}
+
+
+def relevant_events(instrument, events, now=None):
+    """Return relevant scheduled events within 24h ahead or 2h after release."""
+    now = now or datetime.now(timezone.utc)
+    relevant = []
+    for event in events or []:
+        title = str(event.get("event", "")).lower()
+        assets = set()
+        for keyword, mapped in EVENT_ASSETS.items():
+            if keyword in title:
+                assets.update(mapped)
+        if instrument.name not in assets:
+            continue
+        try:
+            stamp = datetime.fromisoformat(event["date_utc"])
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            stamp = stamp.astimezone(timezone.utc)
+        except (KeyError, TypeError, ValueError):
+            continue
+        delta = (stamp - now).total_seconds() / 60
+        if 0 <= delta <= 1440:
+            phase = "IN ARRIVO"
+        elif -120 <= delta < 0:
+            phase = "APPENA PUBBLICATO"
+        else:
+            continue
+        relevant.append({
+            "event": event.get("event", "Evento economico"),
+            "source": event.get("source", "Calendario ufficiale"),
+            "date_utc": stamp.isoformat(),
+            "minutes_to_event": int(delta),
+            "phase": phase,
+            "url": event.get("url", ""),
+        })
+    return sorted(relevant, key=lambda item: abs(item["minutes_to_event"]))
