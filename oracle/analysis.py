@@ -186,6 +186,32 @@ def score_news(instrument, news: list[NewsItem]):
             matched.append(item)
     return max(-6, min(6, total)), matched
 
+
+def build_pre_news_scenario(instrument, news: list[NewsItem], calendar_context=None):
+    """Cheap pre-release bias from already-fetched headlines; never predicts without evidence."""
+    upcoming = [
+        item for item in (calendar_context or [])
+        if item.get("phase") == "IN ARRIVO"
+        and 0 <= item.get("minutes_to_event", -1) <= 30
+    ]
+    if not upcoming:
+        return None
+    score, matched = score_news(instrument, news)
+    if score >= 2:
+        direction = "LONG"
+    elif score <= -2:
+        direction = "SHORT"
+    else:
+        direction = "NEUTRALE"
+    return {
+        "direction": direction,
+        "score": score,
+        "event": upcoming[0].get("event", "Evento programmato"),
+        "evidence": [item.title for item in matched[:3]],
+        "confidence": "bassa" if abs(score) < 4 else "moderata",
+    }
+
+
 def technical_reading(quote: Quote):
     """Return a transparent directional score from trend, momentum and structure."""
     long_score = short_score = 0
