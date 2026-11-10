@@ -48,12 +48,14 @@ class AnalysisTests(unittest.TestCase):
         self.assertLess(signal.target_1, signal.reference_price)
         self.assertLess(signal.target_2, signal.target_1)
 
-    def test_news_contradiction_blocks_setup(self):
+    def test_opposing_news_reduces_confidence_but_does_not_block_setup(self):
         quote = Quote("GC=F", 2010, 2005, 10, self.now, "test", 2005, 1990, 60, 2008, 1980)
         news = [self.item("Gold real yields rise and dollar strengthens")]
         signal, status = build_signal(self.gold, quote, news)
-        self.assertIsNone(signal)
-        self.assertEqual(status, "NEWS_CONTRADICTS_TECHNICAL")
+        self.assertIsNotNone(signal)
+        self.assertEqual(status, "SIGNAL")
+        self.assertEqual(signal.direction, "LONG")
+        self.assertIn("contradicts", signal.rationale)
 
     def test_incomplete_technical_data_does_not_emit_signal(self):
         quote = Quote("GC=F", 2010, 2005, 10, self.now)
