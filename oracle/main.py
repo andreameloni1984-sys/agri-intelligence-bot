@@ -3,7 +3,7 @@ from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
 from .analysis import build_signal, score_news
-from .calendar import fetch_economic_calendar
+from .calendar import fetch_economic_calendar, relevant_events
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
@@ -28,7 +28,7 @@ def _dict_to_news(row):
 
 
 def main():
-    """Scan every configured market on every invocation; news enriches, never gates, analysis."""
+    """Scan all markets every invocation; calendar/news enrich context, never gate analysis."""
     started = datetime.now(timezone.utc)
     errors = []
     print(f"STELLA ROSSA scan started={started.isoformat()} universe={len(UNIVERSE)}")
@@ -70,15 +70,33 @@ def main():
     else:
         print(f"[NEWS] refresh not due; using cached news={len(news)}")
 
-    # Calendar is supplementary; its failure must never block market analysis.
-    if news_due:
+    # Refresh the official calendar on the five-minute cadence and reuse the
+    # last successful copy if a publisher is temporarily unavailable.
+    calendar_events = get_scheduler_state("cached_calendar", [])
+    last_calendar_scan = get_scheduler_state("last_calendar_scan")
+    calendar_due = True
+    if last_calendar_scan:
         try:
-            calendar = fetch_economic_calendar(days=45)
-            save_calendar_events(calendar)
-            print(f"[CALENDAR] refreshed events={len(calendar)}")
+            previous = datetime.fromisoformat(last_calendar_scan)
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            calendar_due = started - previous >= timedelta(minutes=NEWS_SCAN_MINUTES)
+        except (TypeError, ValueError):
+            calendar_due = True
+    if calendar_due:
+        try:
+            fresh_calendar = fetch_economic_calendar(days=45)
+            if fresh_calendar:
+                calendar_events = fresh_calendar
+                save_calendar_events(calendar_events)
+                save_scheduler_state("cached_calendar", calendar_events)
+            save_scheduler_state("last_calendar_scan", started.isoformat())
+            print(f"[CALENDAR] refreshed events={len(fresh_calendar)} cached={len(calendar_events)}")
         except Exception as exc:
             errors.append(f"calendar:{type(exc).__name__}")
-            print(f"[CALENDAR] refresh failed: {type(exc).__name__}; market scan continues")
+            print(f"[CALENDAR] refresh failed: {type(exc).__name__}; using cached events={len(calendar_events)}")
+    else:
+        print(f"[CALENDAR] refresh not due; using cached events={len(calendar_events)}")
 
     symbols = [instrument.symbol for instrument in UNIVERSE]
     try:
@@ -99,18 +117,20 @@ def main():
         checked += 1
         try:
             news_score, matched = score_news(instrument, news)
-            signal, status = build_signal(instrument, quote, news)
+            event_context = relevant_events(instrument, calendar_events, now=started)\n            signal, status = build_signal(instrument, quote, news, calendar_context=event_context)
             if signal:
                 signal.news_score = news_score
                 signal.news_urls = [item.url for item in matched[:5]]
                 is_new = save_result(signal, instrument.name, instrument.symbol, status)
                 directional += 1
                 print(f"[SIGNAL] {signal.instrument} {signal.direction} status={status} "
-                      f"news_score={news_score:+d} confidence={signal.confidence} new={is_new}")
+                      f"news_score={news_score:+d} calendar_events={len(event_context)} "
+                      f"confidence={signal.confidence} new={is_new}")
                 if is_new and not send_telegram(signal):
                     delete_signal(signal)
             else:
-                print(f"[WAIT] {instrument.name}: {status} news_score={news_score:+d}")
+                print(f"[WAIT] {instrument.name}: {status} news_score={news_score:+d} "
+                      f"calendar_events={len(event_context)}")
         except Exception as exc:
             errors.append(f"{instrument.symbol}:{type(exc).__name__}")
             print(f"[ANALYSIS] {instrument.name} failed: {type(exc).__name__}")
