@@ -273,12 +273,13 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     direction = "LONG" if technical_score > 0 else "SHORT"
     setup_type = "CONFIRMED" if abs(technical_score) >= 3 else "EARLY_SETUP"
     news_score, matched = score_news(instrument, news)
-    # News is contextual confirmation/contradiction, never a prerequisite for a technical setup.
-    if (direction == "LONG" and news_score <= -2) or (direction == "SHORT" and news_score >= 2):
-        return None, "NEWS_CONTRADICTS_TECHNICAL"
+    # News is contextual evidence: it can strengthen or weaken confidence, but
+    # it cannot veto a technically valid market setup.
+    news_alignment = news_score * technical_score
+    news_adjustment = 4 if news_alignment > 0 else -4 if news_alignment < 0 else 0
     move_pct = ((quote.last / quote.previous_close) - 1) * 100
-    confidence = min(85, max(50, 50 + min(24, abs(technical_score) * 6) +
-                             min(8, abs(move_pct) * 2) + (4 if news_score and news_score * technical_score > 0 else 0)))
+    confidence = min(85, max(45, 50 + min(24, abs(technical_score) * 6) +
+                             min(8, abs(move_pct) * 2) + news_adjustment))
     if setup_type == "EARLY_SETUP":
         confidence = min(confidence, 59)
     risk = 1.5 * quote.atr
@@ -286,7 +287,8 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
         sl, tp1, tp2 = quote.last - risk, quote.last + risk * 1.5, quote.last + risk * 2.5
     else:
         sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
-    news_note = f"news score {news_score:+d}" if matched else "no matching asset-specific news"
+    alignment_label = "supports" if news_alignment > 0 else "contradicts" if news_alignment < 0 else "neutral"
+    news_note = f"news score {news_score:+d} ({alignment_label})" if matched else "no matching asset-specific news"
     trend, swing, interpretation = classify_market_state(quote)
     rationale = (f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
                  f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
