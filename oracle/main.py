@@ -28,7 +28,7 @@ def _dict_to_news(row):
 
 
 def main():
-    """Wake frequently to check the calendar; fetch markets only around relevant releases."""
+    """Light calendar scheduler; fetch markets only from 30m before relevant releases."""
     started = datetime.now(timezone.utc)
     errors = []
     print(f"STELLA ROSSA calendar check started={started.isoformat()}")
@@ -62,22 +62,23 @@ def main():
     else:
         print(f"[CALENDAR] using cached events={len(calendar_events)}")
 
-    # Only trade the instruments whose official release is imminent (60m) or
-    # has just happened (120m). A calendar-only wake-up outside these windows
-    # exits without news downloads, quote downloads, technical calculations or alerts.
+    # GitHub Actions has a static cron, so it wakes every five minutes only to
+    # evaluate the cached official schedule. Market/news downloads begin only
+    # 30 minutes before a mapped release, and continue for 120 minutes after it.
+    # Outside those windows this exits before news, quotes, technical analysis or alerts.
     active = {}
     for instrument in UNIVERSE:
         context = relevant_events(instrument, calendar_events, now=started)
         context = [
             item for item in context
             if item["phase"] == "APPENA PUBBLICATO"
-            or (item["phase"] == "IN ARRIVO" and item["minutes_to_event"] <= 60)
+            or (item["phase"] == "IN ARRIVO" and item["minutes_to_event"] <= 30)
         ]
         if context:
             active[instrument] = context
 
     if not active:
-        print("[IDLE] no relevant release within 60m or in the 120m post-release window; market scan skipped")
+        print("[IDLE] no relevant release within 30m or in the 120m post-release window; market scan skipped")
         save_scan_meta(started, 0, 0)
         return
 
