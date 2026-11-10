@@ -258,7 +258,7 @@ def classify_market_state(quote: Quote):
         interpretation = "movimento breve non conferma il trend"
     return trend, swing, interpretation
 
-def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
+def build_signal(instrument, quote: Quote | None, news: list[NewsItem], calendar_context=None):
     now = datetime.now(timezone.utc)
     if quote is None:
         return None, "NO_QUOTE"
@@ -280,6 +280,16 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     move_pct = ((quote.last / quote.previous_close) - 1) * 100
     confidence = min(85, max(45, 50 + min(24, abs(technical_score) * 6) +
                              min(8, abs(move_pct) * 2) + news_adjustment))
+    calendar_context = calendar_context or []
+    just_released = any(item.get("phase") == "APPENA PUBBLICATO" for item in calendar_context)
+    upcoming_soon = any(
+        item.get("phase") == "IN ARRIVO" and item.get("minutes_to_event", 99999) <= 60
+        for item in calendar_context
+    )
+    # A fresh release corroborated by news adds context; an imminent release
+    # flags elevated uncertainty. Neither creates a directional trade by itself.
+    calendar_adjustment = 3 if just_released and matched else -3 if upcoming_soon else 0
+    confidence = min(85, max(40, confidence + calendar_adjustment))
     if setup_type == "EARLY_SETUP":
         confidence = min(confidence, 59)
     risk = 1.5 * quote.atr
@@ -290,7 +300,12 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem]):
     alignment_label = "supports" if news_alignment > 0 else "contradicts" if news_alignment < 0 else "neutral"
     news_note = f"news score {news_score:+d} ({alignment_label})" if matched else "no matching asset-specific news"
     trend, swing, interpretation = classify_market_state(quote)
-    rationale = (f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
+    event_note = "; ".join(
+        f"{item['phase']}: {item['event']} ({item['source']})"
+        for item in calendar_context[:2]
+    ) or "nessun evento rilevante nelle prossime 24h/ultime 2h"
+    rationale = (f"Calendario: {event_note}; adjustment={calendar_adjustment:+d}. "
+                 f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
                  f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
                  f"15m price change {move_pct:+.3f}%; quote age {int(age)}m; {news_note}. "
                  "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
