@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: stella-rossa-worker
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install --disable-pip-version-check -r requirements.txt
+    startCommand: python -m oracle.worker
+    disk:
+      name: stella-rossa-journal
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /var/data/oracle.sqlite3
+      - key: GDELT_ENABLED
+        value: "true"
+      - key: MAX_QUOTE_AGE_MINUTES
+        value: "45"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
