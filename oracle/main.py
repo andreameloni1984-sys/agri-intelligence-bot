@@ -1,8 +1,8 @@
 from datetime import datetime, timezone, timedelta
-from .config import UNIVERSE, MIN_ABS_NEWS_SCORE
+from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
-from .analysis import rank_news_opportunities, build_news_led_signal
+from .analysis import build_signal, score_news
 from .calendar import fetch_economic_calendar
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
@@ -27,57 +27,26 @@ def _dict_to_news(row):
     return NewsItem(row["title"], row["url"], published, row["source"], row.get("summary", ""))
 
 
-def _candidate_to_dict(candidate):
-    return {
-        "symbol": candidate["instrument"].symbol,
-        "direction": candidate["direction"],
-        "news_score": candidate["news_score"],
-        "matched": [_news_to_dict(item) for item in candidate["matched"]],
-    }
-
-
-def _dict_to_candidate(row):
-    if not row:
-        return None
-    instrument = next((item for item in UNIVERSE if item.symbol == row.get("symbol")), None)
-    if instrument is None:
-        return None
-    matched = [_dict_to_news(item) for item in row.get("matched", [])]
-    if not matched:
-        return None
-    return {"instrument": instrument, "direction": row["direction"],
-            "news_score": int(row["news_score"]), "matched": matched}
-
-
-def _choose_one(ranked):
-    """Concentrate the monitoring cycle on the single strongest news candidate."""
-    return ranked[0] if ranked else None
-
-
-def _should_run_cycle(news_scan_due, candidate):
-    """Run when a news refresh is due or a single candidate is active."""
-    return bool(news_scan_due or candidate is not None)
-
-
 def main():
+    """Scan every configured market on every invocation; news enriches, never gates, analysis."""
     started = datetime.now(timezone.utc)
     errors = []
-    print(f"STELLA ROSSA scan started={started.isoformat()}")
+    print(f"STELLA ROSSA scan started={started.isoformat()} universe={len(UNIVERSE)}")
+
     last_news_scan = get_scheduler_state("last_news_scan")
-    due = True
+    news_due = True
     if last_news_scan:
         try:
             previous = datetime.fromisoformat(last_news_scan)
             if previous.tzinfo is None:
                 previous = previous.replace(tzinfo=timezone.utc)
-            due = started - previous >= timedelta(minutes=NEWS_SCAN_MINUTES)
+            news_due = started - previous >= timedelta(minutes=NEWS_SCAN_MINUTES)
         except (TypeError, ValueError):
-            due = True
+            news_due = True
 
-    cached_rows = get_scheduler_state("cached_news", [])
     cutoff = started - timedelta(hours=NEWS_CACHE_HOURS)
     cached_news = []
-    for row in cached_rows:
+    for row in get_scheduler_state("cached_news", []):
         try:
             item = _dict_to_news(row)
             if item.published >= cutoff:
@@ -85,77 +54,71 @@ def main():
         except (KeyError, TypeError, ValueError):
             continue
 
-    if due:
-        mode = "NEWS_SELECTION"
+    news = cached_news
+    if news_due:
         try:
             fresh_news = collect_news()
-            merged = {item.url: item for item in cached_news}
+            merged = {item.url: item for item in cached_news if item.url}
             merged.update({item.url: item for item in fresh_news if item.url})
-            news = sorted(merged.values(), key=lambda x: x.published, reverse=True)
-            ranked = rank_news_opportunities(UNIVERSE, news, MIN_ABS_NEWS_SCORE)
-            candidate = _choose_one(ranked)
-            save_scheduler_state("cached_news", [_news_to_dict(x) for x in news])
-            save_scheduler_state("active_candidate", _candidate_to_dict(candidate) if candidate else None)
+            news = sorted(merged.values(), key=lambda item: item.published, reverse=True)
+            save_scheduler_state("cached_news", [_news_to_dict(item) for item in news])
             save_scheduler_state("last_news_scan", started.isoformat())
-            print(f"[NEWS] refreshed fresh={len(fresh_news)} candidates={len(ranked)}")
+            print(f"[NEWS] refreshed fresh={len(fresh_news)} retained={len(news)}")
         except Exception as exc:
             errors.append(f"news:{type(exc).__name__}")
-            news = cached_news
-            candidate = _dict_to_candidate(get_scheduler_state("active_candidate"))
-            mode = "NEWS_REFRESH_FAILED_KEEP_ACTIVE"
-            print(f"[NEWS] refresh failed: {type(exc).__name__}; retaining active candidate")
+            print(f"[NEWS] refresh failed: {type(exc).__name__}; using cached news={len(news)}")
     else:
-        mode = "SINGLE_ASSET_MONITOR"
-        news = cached_news
-        candidate = _dict_to_candidate(get_scheduler_state("active_candidate"))
-        print("[NEWS] refresh skipped; monitoring persisted single candidate")
+        print(f"[NEWS] refresh not due; using cached news={len(news)}")
 
-    if not _should_run_cycle(due, candidate):
-        print("[IDLE] no active candidate and news refresh not due; no quote, calendar or Telegram calls")
-        return
-
-    if due and mode == "NEWS_SELECTION":
+    # Calendar is supplementary; its failure must never block market analysis.
+    if news_due:
         try:
             calendar = fetch_economic_calendar(days=45)
             save_calendar_events(calendar)
             print(f"[CALENDAR] refreshed events={len(calendar)}")
         except Exception as exc:
             errors.append(f"calendar:{type(exc).__name__}")
-            print(f"[CALENDAR] refresh failed: {type(exc).__name__}")
+            print(f"[CALENDAR] refresh failed: {type(exc).__name__}; market scan continues")
 
-    quotes = {}
-    instrument = candidate["instrument"] if candidate else None
-    if instrument:
-        try:
-            quotes = fetch_quotes([instrument.symbol])
-            save_quotes(quotes)
-        except Exception as exc:
-            errors.append(f"quotes:{type(exc).__name__}")
-            print(f"[MARKET] quote fetch failed: {type(exc).__name__}")
-    else:
-        print("[MARKET] no single news-backed candidate; no market quote request")
+    symbols = [instrument.symbol for instrument in UNIVERSE]
+    try:
+        quotes = fetch_quotes(symbols)
+        save_quotes(quotes)
+    except Exception as exc:
+        errors.append(f"quotes:{type(exc).__name__}")
+        quotes = {}
+        print(f"[MARKET] batch quote fetch failed: {type(exc).__name__}")
 
     directional = 0
-    status = "NO_NEWS_CANDIDATE"
-    if candidate and instrument:
-        signal, status = build_news_led_signal(
-            instrument, quotes.get(instrument.symbol),
-            candidate["news_score"], candidate["matched"]
-        )
-        is_new = save_result(signal, instrument.name, instrument.symbol, status)
-        if signal:
-            directional = 1
-            print(f"[SIGNAL] {signal.instrument} {signal.direction} "
-                  f"news_score={signal.news_score:+d} confidence={signal.confidence} new={is_new}")
-            if is_new and not send_telegram(signal):
-                delete_signal(signal)
-        else:
-            print(f"[SELECTED / WAIT] {instrument.name} {candidate['direction']}: {status}")
+    checked = 0
+    for instrument in UNIVERSE:
+        quote = quotes.get(instrument.symbol)
+        if quote is None:
+            print(f"[MARKET] {instrument.name}: quote unavailable/stale; no signal")
+            continue
+        checked += 1
+        try:
+            news_score, matched = score_news(instrument, news)
+            signal, status = build_signal(instrument, quote, news)
+            if signal:
+                signal.news_score = news_score
+                signal.news_urls = [item.url for item in matched[:5]]
+                is_new = save_result(signal, instrument.name, instrument.symbol, status)
+                directional += 1
+                print(f"[SIGNAL] {signal.instrument} {signal.direction} status={status} "
+                      f"news_score={news_score:+d} confidence={signal.confidence} new={is_new}")
+                if is_new and not send_telegram(signal):
+                    delete_signal(signal)
+            else:
+                print(f"[WAIT] {instrument.name}: {status} news_score={news_score:+d}")
+        except Exception as exc:
+            errors.append(f"{instrument.symbol}:{type(exc).__name__}")
+            print(f"[ANALYSIS] {instrument.name} failed: {type(exc).__name__}")
 
-    save_scan_meta(started, len(news), len(quotes))
-    print(f"[DONE] mode={mode} active={instrument.symbol if instrument else 'none'} "
-          f"quotes={len(quotes)} directional={directional} "
-          f"telegram_alerts_only={'enabled'}")
+    save_scan_meta(started, len(news), checked)
+    print(f"[DONE] markets={len(UNIVERSE)} quotes={len(quotes)} "
+          f"analysed={checked} directional={directional} errors={len(errors)} "
+          f"telegram_alerts_only=enabled")
 
 
 if __name__ == "__main__":
