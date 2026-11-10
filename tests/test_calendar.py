@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events,
 )
 
 
@@ -45,6 +45,23 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(len(events), 2)
         self.assertEqual(events[0]["event"], "USDA WASDE supply and demand report")
         self.assertEqual(events[0]["date_utc"], "2026-11-10T17:00:00+00:00")
+
+
+    def test_event_mapping_targets_relevant_assets_and_ignores_unrelated_assets(self):
+        from oracle.config import UNIVERSE
+        now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+        events = [
+            {"event": "USDA WASDE supply and demand report", "source": "USDA",
+             "date_utc": "2026-11-10T17:00:00+00:00", "url": "https://usda.gov"},
+            {"event": "Weekly Petroleum Status Report", "source": "EIA",
+             "date_utc": "2026-11-11T15:30:00+00:00", "url": "https://eia.gov"},
+        ]
+        wheat = next(item for item in UNIVERSE if item.name == "Wheat")
+        wti = next(item for item in UNIVERSE if item.name == "WTI")
+        gold = next(item for item in UNIVERSE if item.name == "Gold")
+        self.assertEqual(relevant_events(wheat, events, now)[0]["phase"], "IN ARRIVO")
+        self.assertEqual(relevant_events(wti, events, now)[0]["source"], "EIA")
+        self.assertEqual(relevant_events(gold, events, now), [])
 
 
 if __name__ == "__main__":
