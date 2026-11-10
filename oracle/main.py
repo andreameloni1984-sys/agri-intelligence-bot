@@ -10,7 +10,7 @@ from .storage import (
 )
 from .notify import send_telegram
 
-NEWS_SCAN_MINUTES = 30
+NEWS_SCAN_MINUTES = 5
 NEWS_CACHE_HOURS = 12
 
 
