@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
-from .analysis import build_signal, score_news
+from .analysis import build_signal, score_news, build_pre_news_scenario
 from .calendar import fetch_economic_calendar, relevant_events
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
@@ -96,6 +96,18 @@ def main():
         errors.append(f"news:{type(exc).__name__}")
         news = []
         print(f"[NEWS] refresh failed: {type(exc).__name__}; continuing with calendar and prices")
+
+    # Pre-release view reuses the headlines already fetched for this event window.
+    # It performs no additional network calls and never creates an order or alert.
+    for instrument, event_context in active.items():
+        preview = build_pre_news_scenario(instrument, news, event_context)
+        if preview:
+            evidence = " | ".join(preview["evidence"]) if preview["evidence"] else "nessuna notizia direzionale verificata"
+            print(
+                f"[PRE-NEWS] {instrument.name} {preview['direction']} "
+                f"score={preview['score']:+d} confidence={preview['confidence']} "
+                f"event={preview['event']} evidence={evidence}"
+            )
 
     symbols = [instrument.symbol for instrument in active]
     try:
