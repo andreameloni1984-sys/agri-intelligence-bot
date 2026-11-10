@@ -49,7 +49,7 @@ class CalendarTests(unittest.TestCase):
 
     def test_event_mapping_targets_relevant_assets_and_ignores_unrelated_assets(self):
         from oracle.config import UNIVERSE
-        now = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 11, 10, 16, 0, tzinfo=timezone.utc)
         events = [
             {"event": "USDA WASDE supply and demand report", "source": "USDA",
              "date_utc": "2026-11-10T17:00:00+00:00", "url": "https://usda.gov"},
