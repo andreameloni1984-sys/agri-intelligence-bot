@@ -80,10 +80,39 @@ def main():
         if context:
             active[instrument] = context
 
+    # Outside calendar windows, check free news at most once per 30 minutes.
+    # Only fresh, directionally mapped headlines activate a commodity quote scan.
+    news = None
     if not active:
-        print("[IDLE] no relevant release within 30m or in the 120m post-release window; market scan skipped")
-        save_scan_meta(started, 0, 0)
-        return
+        last_news_scan = get_scheduler_state("last_news_scan")
+        news_due = True
+        if last_news_scan:
+            try:
+                previous_news = datetime.fromisoformat(last_news_scan)
+                if previous_news.tzinfo is None:
+                    previous_news = previous_news.replace(tzinfo=timezone.utc)
+                news_due = started - previous_news >= timedelta(minutes=30)
+            except (TypeError, ValueError):
+                pass
+        if news_due:
+            try:
+                news = collect_news()
+                save_scheduler_state("cached_news", [_news_to_dict(item) for item in news])
+                save_scheduler_state("last_news_scan", started.isoformat())
+                fresh = [item for item in news if timedelta(0) <= started - item.published <= timedelta(minutes=35)]
+                for instrument in UNIVERSE:
+                    score, matched = score_news(instrument, fresh)
+                    if abs(score) >= 2 and matched:
+                        active[instrument] = []
+                        print(f"[NEWS TRIGGER] {instrument.name} score={score:+d} headlines={len(matched)}")
+                print(f"[NEWS] off-calendar items={len(news)} fresh={len(fresh)} active={len(active)}")
+            except Exception as exc:
+                errors.append(f"news:{type(exc).__name__}")
+                print(f"[NEWS] off-calendar check failed: {type(exc).__name__}")
+        if not active:
+            print("[IDLE] no calendar window or fresh directional news; market scan skipped")
+            save_scan_meta(started, 0, 0)
+            return
 
     print("[EVENT WINDOW] " + ", ".join(
         f"{instrument.name}({len(context)})" for instrument, context in active.items()
@@ -91,9 +120,10 @@ def main():
 
     # Headlines are collected only when a mapped event activates the relevant markets.
     try:
-        news = collect_news()
-        save_scheduler_state("cached_news", [_news_to_dict(item) for item in news])
-        save_scheduler_state("last_news_scan", started.isoformat())
+        if news is None:
+            news = collect_news()
+            save_scheduler_state("cached_news", [_news_to_dict(item) for item in news])
+            save_scheduler_state("last_news_scan", started.isoformat())
         print(f"[NEWS] refreshed items={len(news)}")
     except Exception as exc:
         errors.append(f"news:{type(exc).__name__}")
