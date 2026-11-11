@@ -54,7 +54,10 @@ def main():
                 calendar_events = fresh_calendar
                 save_calendar_events(calendar_events)
                 save_scheduler_state("cached_calendar", calendar_events)
-            save_scheduler_state("last_calendar_scan", started.isoformat())
+            # If every official source returns no events, retry in one hour rather than six.
+            # Keep the last successful calendar and do not trigger market scans.
+            retry_reference = started - timedelta(hours=5) if not fresh_calendar else started
+            save_scheduler_state("last_calendar_scan", retry_reference.isoformat())
             print(f"[CALENDAR] refreshed events={len(fresh_calendar)} cached={len(calendar_events)}")
         except Exception as exc:
             errors.append(f"calendar:{type(exc).__name__}")
