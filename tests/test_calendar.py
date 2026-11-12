@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims,
 )
 
 
@@ -23,6 +23,16 @@ class CalendarTests(unittest.TestCase):
         html = "<div>Tuesday, November 10, 2026 10:00 AM State Employment and Unemployment</div>"
         now = datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)
         self.assertEqual(parse_bls_calendar(html, now=now), [])
+
+    def test_weekly_claims_activates_gold_at_1400_italy(self):
+        from oracle.config import UNIVERSE
+        now = datetime(2026, 11, 12, 13, 0, tzinfo=timezone.utc)
+        events = scheduled_weekly_claims(now=now, days=1)
+        self.assertEqual(events[0]["date_utc"], "2026-11-12T13:30:00+00:00")
+        gold = next(item for item in UNIVERSE if item.name == "Gold")
+        copper = next(item for item in UNIVERSE if item.name == "Copper")
+        self.assertEqual(relevant_events(gold, events, now)[0]["minutes_to_event"], 30)
+        self.assertEqual(relevant_events(copper, events, now), [])
 
     def test_eia_generates_next_wednesday_in_utc(self):
         now = datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)
