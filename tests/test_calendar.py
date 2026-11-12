@@ -31,6 +31,16 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(events[0]["event"], "Weekly Petroleum Status Report")
         self.assertEqual(events[0]["date_utc"], "2026-11-11T15:30:00+00:00")
 
+    def test_eia_holiday_shift_is_found_on_thursday_release_day(self):
+        html = """
+        <table><tr><td>November 6, 2026</td><td>November 12, 2026</td>
+        <td>Thursday</td><td>12:00 p.m.</td><td>Veterans Day</td></tr></table>
+        """
+        now = datetime(2026, 11, 12, 10, 0, tzinfo=timezone.utc)
+        events = parse_eia_schedule(html, now=now, days=2)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["date_utc"], "2026-11-12T17:00:00+00:00")
+
     def test_fomc_parser_uses_second_meeting_day(self):
         html = "<h2>2026 FOMC Meetings</h2><p>November 27-28</p><p>December 8-9*</p><h2>2025 FOMC Meetings</h2>"
         now = datetime(2026, 11, 1, tzinfo=timezone.utc)
