@@ -105,8 +105,10 @@ def _eia_exceptions(html: str) -> dict[date, date]:
 def parse_eia_schedule(html: str, now: datetime | None = None, days: int = 45) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     exceptions = _eia_exceptions(html)
-    start = now.astimezone(ET).date()
-    end = start + timedelta(days=days)
+    # Include the preceding Wednesday: holiday-delayed EIA reports can land
+    # on Thursday or later, after their original Wednesday has passed.
+    start = now.astimezone(ET).date() - timedelta(days=7)
+    end = now.astimezone(ET).date() + timedelta(days=days)
     events = []
     day = start
     while day <= end:
