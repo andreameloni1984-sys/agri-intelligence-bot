@@ -182,6 +182,28 @@ def parse_wasde_calendar(html: str, now: datetime | None = None, days: int = 180
     return sorted(events, key=lambda item: item["date_utc"])
 
 
+def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list[dict]:
+    """Regular DOL Thursday 08:30 ET release; skip US federal holidays.
+
+    The DOL publishes the regular weekly cadence, not a future-date feed.
+    Holiday-rescheduled editions require a separate official confirmation.
+    """
+    now = now or datetime.now(timezone.utc)
+    start = now.astimezone(ET).date()
+    end = start + timedelta(days=days)
+    events = []
+    day = start
+    while day <= end:
+        if day.weekday() == 3:
+            stamp = datetime.combine(day, time(8, 30), tzinfo=ET).astimezone(timezone.utc)
+            if stamp >= now - timedelta(hours=2):
+                events.append(_event(f"DOL:CLAIMS:{day.isoformat()}", stamp,
+                    "Unemployment Insurance Weekly Claims", "DOL",
+                    "https://www.dol.gov/newsroom/economicdata"))
+        day += timedelta(days=1)
+    return events
+
+
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
     """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
@@ -209,6 +231,7 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
         for future in as_completed(futures):
             events.extend(future.result())
 
+    events.extend(scheduled_weekly_claims(days=days))
     unique = {item["id"]: item for item in events}
     return sorted(unique.values(), key=lambda item: item["date_utc"])
 
@@ -227,6 +250,7 @@ EVENT_ASSETS = {
     "ppi": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "producer price": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "employment situation": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
+    "unemployment insurance weekly claims": {"Gold"},
     "job openings": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "fomc": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "federal reserve": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
