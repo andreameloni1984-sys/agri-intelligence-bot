@@ -183,7 +183,7 @@ def parse_wasde_calendar(html: str, now: datetime | None = None, days: int = 180
 
 
 def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list[dict]:
-    """Regular DOL Thursday 08:30 ET release; skip US federal holidays.
+    """Regular DOL Thursday 08:30 ET release; holiday shifts need confirmation.
 
     The DOL publishes the regular weekly cadence, not a future-date feed.
     Holiday-rescheduled editions require a separate official confirmation.
