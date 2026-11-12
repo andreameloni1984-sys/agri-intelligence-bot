@@ -3,7 +3,7 @@ from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
 from .analysis import build_signal, score_news, build_pre_news_scenario
-from .calendar import fetch_economic_calendar, relevant_events
+from .calendar import fetch_economic_calendar, relevant_events, scheduled_weekly_claims
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
@@ -64,6 +64,11 @@ def main():
             print(f"[CALENDAR] refresh failed: {type(exc).__name__}; cached events={len(calendar_events)}")
     else:
         print(f"[CALENDAR] using cached events={len(calendar_events)}")
+
+    # Regular DOL weekly claims must be visible even when the official calendar
+    # cache was populated before support for this release was deployed.
+    claims = scheduled_weekly_claims(now=started, days=2)
+    calendar_events = list({item["id"]: item for item in [*calendar_events, *claims]}.values())
 
     # GitHub Actions has a static cron, so it wakes every five minutes only to
     # evaluate the cached official schedule. Market/news downloads begin only
