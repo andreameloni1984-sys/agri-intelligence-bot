@@ -333,7 +333,7 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem], calendar
     rationale = (f"Calendario: {event_note}; adjustment={calendar_adjustment:+d}. "
                  f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
                  f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
-                 f"15m price change {move_pct:+.3f}%; quote age {int(age)}m; {news_note}. "
+                 f"15m price change {move_pct:+.3f}%; reference price is the last completed 15m candle close from {quote.source}; candle closed {int(age)}m ago (NOT a live executable quote); {news_note}. "
                  "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now,
