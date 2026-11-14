@@ -158,6 +158,7 @@ def main():
 
     directional = 0
     checked = 0
+    candidates = []
     for instrument, event_context in active.items():
         quote = quotes.get(instrument.symbol)
         if quote is None:
@@ -172,15 +173,13 @@ def main():
             if signal:
                 signal.news_score = news_score
                 signal.news_urls = [item.url for item in matched[:5]]
-                is_new = save_result(signal, instrument.name, instrument.symbol, status)
                 directional += 1
+                candidates.append((signal, instrument, status, event_context, news_score))
                 print(
-                    f"[SIGNAL] {signal.instrument} {signal.direction} status={status} "
+                    f"[CANDIDATE] {signal.instrument} {signal.direction} status={status} "
                     f"news_score={news_score:+d} calendar_events={len(event_context)} "
-                    f"confidence={signal.confidence} new={is_new}"
+                    f"confidence={signal.confidence}"
                 )
-                if is_new and not send_telegram(signal):
-                    delete_signal(signal)
             else:
                 print(
                     f"[WAIT] {instrument.name}: {status} news_score={news_score:+d} "
@@ -189,6 +188,54 @@ def main():
         except Exception as exc:
             errors.append(f"{instrument.symbol}:{type(exc).__name__}")
             print(f"[ANALYSIS] {instrument.name} failed: {type(exc).__name__}")
+
+    # Calendar-driven selection: compare all candidates first, then alert at most
+    # two distinct commodities per official release. Persist selections across
+    # scheduled runs via the restored SQLite scheduler journal.
+    calendar_groups = {}
+    standalone = []
+    for signal, instrument, status, context, news_score in candidates:
+        if not context:
+            standalone.append((signal, instrument, status))
+            continue
+        nearest = context[0]
+        event_key = nearest["source"] + "|" + nearest["event"] + "|" + nearest["date_utc"]
+        calendar_groups.setdefault(event_key, []).append(
+            (signal, instrument, status, news_score, nearest)
+        )
+
+    for event_key, options in calendar_groups.items():
+        state_key = "selected_event:" + event_key
+        chosen = get_scheduler_state(state_key, [])
+        if not isinstance(chosen, list):
+            chosen = []
+        # Prioritize confidence, then technical/news agreement. No extra
+        # provider calls and no calendar-only directional assumptions.
+        options.sort(
+            key=lambda row: (
+                row[0].confidence,
+                (row[3] > 0 and row[0].direction == "LONG")
+                or (row[3] < 0 and row[0].direction == "SHORT"),
+            ),
+            reverse=True,
+        )
+        for signal, instrument, status, news_score, nearest in options:
+            if instrument.symbol in chosen or len(chosen) >= 2:
+                print(f"[RANKED_OUT] {instrument.name} event={event_key} selected={chosen}")
+                continue
+            is_new = save_result(signal, instrument.name, instrument.symbol, status)
+            if is_new and send_telegram(signal):
+                chosen.append(instrument.symbol)
+                save_scheduler_state(state_key, chosen)
+                print(f"[SELECTED] {instrument.name} event={event_key} rank={len(chosen)}")
+            elif is_new:
+                delete_signal(signal)
+
+    # Preserve the existing independent news-led path outside calendar windows.
+    for signal, instrument, status in standalone:
+        is_new = save_result(signal, instrument.name, instrument.symbol, status)
+        if is_new and not send_telegram(signal):
+            delete_signal(signal)
 
     save_scan_meta(started, len(news), checked)
     print(
