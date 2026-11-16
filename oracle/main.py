@@ -70,6 +70,21 @@ def main():
     claims = scheduled_weekly_claims(now=started, days=2)
     calendar_events = list({item["id"]: item for item in [*calendar_events, *claims]}.values())
 
+    # USDA AMS Export Inspections on 2026-11-16 at 11:00 ET is independently
+    # confirmed. Add only this verified release; do not infer holiday schedules.
+    from zoneinfo import ZoneInfo
+    inspection_day = datetime(2026, 11, 16, 11, 0, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+    if -timedelta(hours=2) <= inspection_day - started <= timedelta(minutes=30):
+        inspection = {
+            "id": "USDA:EXPORT_INSPECTIONS:2026-11-16",
+            "date_utc": inspection_day.isoformat(),
+            "event": "USDA Export Inspections wheat corn soybeans",
+            "country": "US", "source": "USDA AMS", "importance": "HIGH",
+            "url": "https://www.ams.usda.gov/market-news/grain-and-feed",
+        }
+        calendar_events = list({item["id"]: item for item in [*calendar_events, inspection]}.values())
+        print("[CALENDAR] verified USDA Export Inspections release added")
+
     # GitHub Actions has a static cron, so it wakes every five minutes only to
     # evaluate the cached official schedule. Market/news downloads begin only
     # 30 minutes before a mapped release, and continue for 120 minutes after it.
