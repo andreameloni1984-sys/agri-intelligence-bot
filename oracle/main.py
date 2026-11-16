@@ -138,6 +138,24 @@ def main():
         f"{instrument.name}({len(context)})" for instrument, context in active.items()
     ))
 
+    # Once a release has selected its commodities, subsequent five-minute scans
+    # monitor only those symbols. The first pass may compare all mapped assets;
+    # the persisted journal then keeps quote downloads focused on the winners.
+    focused = {}
+    for instrument, context in active.items():
+        if not context:
+            focused[instrument] = context
+            continue
+        nearest = context[0]
+        event_key = nearest["source"] + "|" + nearest["event"] + "|" + nearest["date_utc"]
+        chosen = get_scheduler_state("selected_event:" + event_key, [])
+        if not isinstance(chosen, list) or not chosen or instrument.symbol in chosen:
+            focused[instrument] = context
+        else:
+            print(f"[FOCUSED OUT] {instrument.name} event={event_key}")
+    active = focused
+    print(f"[FOCUSED MONITOR] active={len(active)}")
+
     # Headlines are collected only when a mapped event activates the relevant markets.
     try:
         if news is None:
