@@ -3,7 +3,7 @@ from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
 from .analysis import build_signal, score_news, build_pre_news_scenario
-from .calendar import fetch_economic_calendar, relevant_events, scheduled_weekly_claims, verified_releases
+from .calendar import fetch_economic_calendar, relevant_events
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
@@ -65,26 +65,15 @@ def main():
     else:
         print(f"[CALENDAR] using cached events={len(calendar_events)}")
 
-    # Regular DOL weekly claims must be visible even when the official calendar
-    # cache was populated before support for this release was deployed.
-    claims = scheduled_weekly_claims(now=started, days=2)
-    calendar_events = list({item["id"]: item for item in [*calendar_events, *claims, *verified_releases(now=started, days=2)]}.values())
-    print(f"[CALENDAR] verified supplemental releases active={len(verified_releases(now=started, days=2))}")
-
-    # USDA AMS Export Inspections on 2026-11-16 at 11:00 ET is independently
-    # confirmed. Add only this verified release; do not infer holiday schedules.
-    from zoneinfo import ZoneInfo
-    inspection_day = datetime(2026, 11, 16, 11, 0, tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
-    if -timedelta(hours=2) <= inspection_day - started <= timedelta(minutes=30):
-        inspection = {
-            "id": "USDA:EXPORT_INSPECTIONS:2026-11-16",
-            "date_utc": inspection_day.isoformat(),
-            "event": "USDA Export Inspections wheat corn soybeans",
-            "country": "US", "source": "USDA AMS", "importance": "HIGH",
-            "url": "https://www.ams.usda.gov/market-news/grain-and-feed",
-        }
-        calendar_events = list({item["id"]: item for item in [*calendar_events, inspection]}.values())
-        print("[CALENDAR] verified USDA Export Inspections release added")
+    # Only calendar events fetched from the official publishers are eligible.
+    # Discard old cached/manual events from earlier bot versions.
+    official_sources = {"BLS", "EIA", "Federal Reserve", "USDA", "Census", "BEA"}
+    calendar_events = [
+        event for event in calendar_events
+        if event.get("source") in official_sources
+        and event.get("id", "").split(":")[0] not in {"DOL"}
+    ]
+    print(f"[CALENDAR] official-source events={len(calendar_events)}")
 
     # Audit the next 24h of mapped releases, including when no scan is due.
     upcoming = []

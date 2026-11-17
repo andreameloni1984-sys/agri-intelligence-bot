@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims, verified_releases,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims,
 )
 
 
@@ -82,20 +82,6 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(relevant_events(wheat, events, now)[0]["phase"], "IN ARRIVO")
         self.assertEqual(relevant_events(wti, events, now)[0]["source"], "EIA")
         self.assertEqual(relevant_events(gold, events, now), [])
-
-    def test_verified_retail_release_and_dst(self):
-        from oracle.config import UNIVERSE
-        now = datetime(2026, 11, 17, 12, 45, tzinfo=timezone.utc)
-        events = verified_releases(now=now, days=2)
-        retail = next(item for item in events if item["event"] == "Advance Monthly Retail Sales")
-        self.assertEqual(retail["date_utc"], "2026-11-17T13:30:00+00:00")
-        gold = next(item for item in UNIVERSE if item.name == "Gold")
-        self.assertEqual(relevant_events(gold, [retail], now)[0]["minutes_to_event"], 45)
-
-    def test_verified_release_expires_after_two_hours(self):
-        now = datetime(2026, 11, 17, 16, 0, tzinfo=timezone.utc)
-        events = verified_releases(now=now, days=1)
-        self.assertFalse(any(item["event"] == "Advance Monthly Retail Sales" for item in events))
 
 
 
