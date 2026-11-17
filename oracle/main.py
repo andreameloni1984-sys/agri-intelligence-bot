@@ -33,7 +33,7 @@ def main():
     errors = []
     print(f"STELLA ROSSA calendar check started={started.isoformat()}")
 
-    # Official schedules change infrequently: refresh every six hours, not every
+    # Official schedules change infrequently: refresh every hour, not every
     # five-minute wake-up. Retain the last successful schedule on source failure.
     calendar_events = get_scheduler_state("cached_calendar", [])
     last_calendar_scan = get_scheduler_state("last_calendar_scan")
@@ -43,7 +43,7 @@ def main():
             previous = datetime.fromisoformat(last_calendar_scan)
             if previous.tzinfo is None:
                 previous = previous.replace(tzinfo=timezone.utc)
-            calendar_due = started - previous >= timedelta(hours=6)
+            calendar_due = started - previous >= timedelta(hours=1)
         except (TypeError, ValueError):
             calendar_due = True
 
@@ -84,6 +84,28 @@ def main():
         }
         calendar_events = list({item["id"]: item for item in [*calendar_events, inspection]}.values())
         print("[CALENDAR] verified USDA Export Inspections release added")
+
+    # Audit the next 24h of mapped releases, including when no scan is due.
+    upcoming = []
+    for event in calendar_events:
+        try:
+            event_time = datetime.fromisoformat(event["date_utc"])
+            if event_time.tzinfo is None:
+                event_time = event_time.replace(tzinfo=timezone.utc)
+            minutes = (event_time - started).total_seconds() / 60
+            if 0 <= minutes <= 1440 and any(
+                relevant_events(instrument, [event], now=started) for instrument in UNIVERSE
+            ):
+                upcoming.append((minutes, event))
+        except (KeyError, ValueError, TypeError):
+            continue
+    upcoming.sort(key=lambda pair: pair[0])
+    if upcoming:
+        minutes, next_event = upcoming[0]
+        print(f"[NEXT EVENT] in={minutes:.0f}m source={next_event.get('source')} "
+              f"title={next_event.get('event')} at={next_event.get('date_utc')}")
+    else:
+        print("[CALENDAR WARNING] no mapped economic releases in next 24h; check source coverage")
 
     # GitHub Actions has a static cron, so it wakes every five minutes only to
     # evaluate the cached official schedule. Market/news downloads begin only
