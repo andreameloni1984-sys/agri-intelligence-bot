@@ -15,6 +15,8 @@ ET = ZoneInfo("America/New_York")
 EIA_URL = "https://www.eia.gov/petroleum/supply/weekly/schedule.php"
 FED_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 USDA_URL = "https://usda.azureedge.us/about-usda/general-information/staff-offices/office-chief-economist/commodity-markets/wasde-report"
+CENSUS_URL = "https://www.census.gov/economic-indicators/calendar-listview.html"
+BEA_URL = "https://www.bea.gov/news/schedule/full"
 USER_AGENT = "ORACLE-research-bot/0.7 (+official-calendar-reader)"
 BLS_IMPORTANT = (
     "Consumer Price Index", "Producer Price Index", "Employment Situation",
@@ -205,6 +207,75 @@ def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list
 
 
 
+
+# Parse publisher schedules only; never synthesize release dates from a cadence.
+CENSUS_TITLES = (
+    "Advance Monthly Sales for Retail and Food Services",
+    "Manufacturing and Trade: Inventories and Sales",
+    "New Residential Construction",
+    "Advance Report on Durable Goods",
+    "New Residential Sales",
+    "Advance Economic Indicators Report",
+    "Construction Spending",
+    "Full Report - Manufacturers",
+)
+BEA_TITLES = (
+    "GDP", "Gross Domestic Product", "Personal Income and Outlays",
+    "U.S. International Trade in Goods and Services",
+)
+
+
+def parse_census_calendar(html: str, now: datetime | None = None, days: int = 45) -> list[dict]:
+    now = now or datetime.now(timezone.utc)
+    text = _html_text(html)
+    pattern = re.compile(
+        r"(.{0,160}?)\s+(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{1,2}),\s+(20\d{2})\s+(\d{1,2}:\d{2})\s+(AM|PM)\b", re.I)
+    events = []
+    for m in pattern.finditer(text):
+        title = m.group(1).strip(" |:-")
+        # Keep only the final known title in case the HTML text includes table headers.
+        candidates = [name for name in CENSUS_TITLES if title.endswith(name)]
+        if not candidates:
+            continue
+        title = candidates[0]
+        try:
+            day = date(int(m.group(4)), MONTHS[m.group(2).lower()], int(m.group(3)))
+            stamp = _to_utc(day, m.group(5), m.group(6))
+        except ValueError:
+            continue
+        if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
+            events.append(_event(f"Census:{day}:{title}", stamp, title, "Census", CENSUS_URL))
+    return sorted({e["id"]: e for e in events}.values(), key=lambda e: e["date_utc"])
+
+
+def parse_bea_calendar(html: str, now: datetime | None = None, days: int = 45) -> list[dict]:
+    now = now or datetime.now(timezone.utc)
+    text = _html_text(html)
+    # BEA displays 'Year 2026' followed by 'November 25 8:30 AM News GDP ...'.
+    year_matches = list(re.finditer(r"\bYear\s+(20\d{2})\b", text, re.I))
+    events = []
+    for i, y in enumerate(year_matches):
+        year = int(y.group(1))
+        section = text[y.end():year_matches[i + 1].start() if i + 1 < len(year_matches) else len(text)]
+        pattern = re.compile(
+            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
+            r"\s+(\d{1,2})\s+(\d{1,2}:\d{2})\s+(AM|PM)\s+"
+            r"(?:News|N\s*e\s*w\s*s)\s+(.+?)(?=\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s+\d{1,2}:\d{2}|To Be Announced|$)", re.I)
+        for m in pattern.finditer(section):
+            title = m.group(5).strip(" |")
+            if not any(title.lower().startswith(name.lower()) for name in BEA_TITLES):
+                continue
+            try:
+                day = date(year, MONTHS[m.group(1).lower()], int(m.group(2)))
+                stamp = _to_utc(day, m.group(3), m.group(4))
+            except ValueError:
+                continue
+            if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
+                events.append(_event(f"BEA:{day}:{title}", stamp, title, "BEA", BEA_URL))
+    return sorted({e["id"]: e for e in events}.values(), key=lambda e: e["date_utc"])
+
+
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
     """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
@@ -213,6 +284,8 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
         (EIA_URL, lambda html: parse_eia_schedule(html, days=days)),
         (FED_URL, lambda html: parse_fomc_calendar(html, days=days)),
         (USDA_URL, lambda html: parse_wasde_calendar(html, days=days)),
+        (CENSUS_URL, lambda html: parse_census_calendar(html, days=days)),
+        (BEA_URL, lambda html: parse_bea_calendar(html, days=days)),
     )
 
     def fetch_one(url, parser):
@@ -257,6 +330,17 @@ EVENT_ASSETS = {
     "productivity": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "employment cost": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "retail sales": {"Gold", "Copper"},
+    "retail and food services": {"Gold", "Copper"},
+    "manufacturing and trade": {"Copper", "WTI", "Brent"},
+    "new residential construction": {"Copper"},
+    "advance report on durable goods": {"Copper", "Gold"},
+    "construction spending": {"Copper"},
+    "personal income and outlays": {"Gold", "Copper", "WTI", "Brent"},
+    "gdp": {"Gold", "Copper", "WTI", "Brent"},
+    "gross domestic product": {"Gold", "Copper", "WTI", "Brent"},
+    "international trade in goods": {"Gold", "Copper"},
+    "advance economic indicators": {"Copper"},
+    "full report - manufacturers": {"Copper"},
     "import and export price": {"Gold", "Copper"},
     "industrial production": {"Gold", "Copper"},
     "capacity utilization": {"Gold", "Copper"},

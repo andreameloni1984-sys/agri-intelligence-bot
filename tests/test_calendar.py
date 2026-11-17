@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims, parse_census_calendar, parse_bea_calendar,
 )
 
 
@@ -82,6 +82,27 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(relevant_events(wheat, events, now)[0]["phase"], "IN ARRIVO")
         self.assertEqual(relevant_events(wti, events, now)[0]["source"], "EIA")
         self.assertEqual(relevant_events(gold, events, now), [])
+
+
+    def test_census_live_calendar_extracts_only_important_releases(self):
+        html = """<table><tr><td>Advance Monthly Sales for Retail and Food Services</td>
+        <td>November 17, 2026</td><td>8:30 AM</td></tr>
+        <tr><td>Business Formation Statistics</td><td>November 18, 2026</td><td>10:00 AM</td></tr>
+        <tr><td>New Residential Construction</td><td>November 18, 2026</td><td>8:30 AM</td></tr></table>"""
+        now = datetime(2026, 11, 17, 12, 0, tzinfo=timezone.utc)
+        events = parse_census_calendar(html, now=now)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["date_utc"], "2026-11-17T13:30:00+00:00")
+
+    def test_bea_live_calendar_extracts_gdp_and_pce(self):
+        html = """<h2>Year 2026</h2>
+        <div>November 25 8:30 AM News GDP (Second Estimate), 3rd Quarter 2026</div>
+        <div>November 25 8:30 AM News Personal Income and Outlays, October 2026</div>
+        <div>December 2 8:30 AM News GDP by County, 2025</div>"""
+        now = datetime(2026, 11, 17, 12, 0, tzinfo=timezone.utc)
+        events = parse_bea_calendar(html, now=now)
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[0]["date_utc"], "2026-11-25T13:30:00+00:00")
 
 
 
