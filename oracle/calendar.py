@@ -205,32 +205,6 @@ def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list
 
 
 
-# Officially scheduled releases missing from the original BLS/EIA/Fed/WASDE feeds.
-# Explicit dates avoid inventing a recurring release on holidays or shutdowns.
-# Entries expire automatically two hours after publication.
-VERIFIED_RELEASES = (
-    ("2026-11-17", "08:30", "Census", "Advance Monthly Retail Sales", "https://www.census.gov/about/event-calendar.html"),
-    ("2026-11-17", "08:30", "BLS", "U.S. Import and Export Price Indexes", "https://www.bls.gov/schedule/2026/"),
-    ("2026-11-17", "09:15", "Federal Reserve", "Industrial Production and Capacity Utilization", "https://www.federalreserve.gov/releases/g17/"),
-    ("2026-11-17", "10:00", "Census", "Manufacturing and Trade Inventories and Sales", "https://www.census.gov/about/event-calendar.html"),
-    ("2026-11-18", "08:30", "Census", "Housing Starts and Building Permits", "https://www.census.gov/about/event-calendar.html"),
-    ("2026-11-18", "14:00", "Federal Reserve", "FOMC Meeting Minutes", "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"),
-    ("2026-11-25", "08:30", "Census", "Durable Goods Orders", "https://www.census.gov/about/event-calendar.html"),
-    ("2026-11-25", "10:00", "Census", "New Residential Sales", "https://www.census.gov/about/event-calendar.html"),
-)
-
-
-def verified_releases(now: datetime | None = None, days: int = 45) -> list[dict]:
-    now = now or datetime.now(timezone.utc)
-    events = []
-    for day, clock, source, title, url in VERIFIED_RELEASES:
-        stamp = datetime.combine(date.fromisoformat(day),
-                                 time.fromisoformat(clock), tzinfo=ET).astimezone(timezone.utc)
-        if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
-            events.append(_event(f"{source}:{day}:{title}", stamp, title, source, url))
-    return events
-
-
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
     """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
@@ -258,8 +232,6 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
         for future in as_completed(futures):
             events.extend(future.result())
 
-    events.extend(scheduled_weekly_claims(days=days))
-    events.extend(verified_releases(days=days))
     unique = {item["id"]: item for item in events}
     return sorted(unique.values(), key=lambda item: item["date_utc"])
 
