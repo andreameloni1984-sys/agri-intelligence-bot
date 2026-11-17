@@ -229,8 +229,8 @@ def parse_census_calendar(html: str, now: datetime | None = None, days: int = 45
     now = now or datetime.now(timezone.utc)
     text = _html_text(html)
     pattern = re.compile(
-        r"(.{0,160}?)\\s+(January|February|March|April|May|June|July|August|September|October|November|December)"
-        r"\\s+(\\d{1,2}),\\s+(20\\d{2})\\s+(\\d{1,2}:\\d{2})\\s+(AM|PM)\\b", re.I)
+        r"(.{0,160}?)\s+(January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{1,2}),\s+(20\d{2})\s+(\d{1,2}:\d{2})\s+(AM|PM)\b", re.I)
     events = []
     for m in pattern.finditer(text):
         title = m.group(1).strip(" |:-")
@@ -253,15 +253,15 @@ def parse_bea_calendar(html: str, now: datetime | None = None, days: int = 45) -
     now = now or datetime.now(timezone.utc)
     text = _html_text(html)
     # BEA displays 'Year 2026' followed by 'November 25 8:30 AM News GDP ...'.
-    year_matches = list(re.finditer(r"\\bYear\\s+(20\\d{2})\\b", text, re.I))
+    year_matches = list(re.finditer(r"\bYear\s+(20\d{2})\b", text, re.I))
     events = []
     for i, y in enumerate(year_matches):
         year = int(y.group(1))
         section = text[y.end():year_matches[i + 1].start() if i + 1 < len(year_matches) else len(text)]
         pattern = re.compile(
-            r"\\b(January|February|March|April|May|June|July|August|September|October|November|December)"
-            r"\\s+(\\d{1,2})\\s+(\\d{1,2}:\\d{2})\\s+(AM|PM)\\s+"
-            r"(?:News|N\\s*e\\s*w\\s*s)\\s+(.+?)(?=\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2}\\s+\\d{1,2}:\\d{2}|To Be Announced|$)", re.I)
+            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
+            r"\s+(\d{1,2})\s+(\d{1,2}:\d{2})\s+(AM|PM)\s+"
+            r"(?:News|N\s*e\s*w\s*s)\s+(.+?)(?=\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\s+\d{1,2}:\d{2}|To Be Announced|$)", re.I)
         for m in pattern.finditer(section):
             title = m.group(5).strip(" |")
             if not any(title.lower().startswith(name.lower()) for name in BEA_TITLES):
