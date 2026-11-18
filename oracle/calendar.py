@@ -166,15 +166,15 @@ def parse_fed_monthly_calendar(html: str, now: datetime | None = None, days: int
     """
     now = now or datetime.now(timezone.utc)
     text = _html_text(html)
-    heading = re.search(r"Calendar\\s+([A-Za-z]+)\\s+(20\\d{2})", text, re.IGNORECASE)
+    heading = re.search(r"Calendar\s+([A-Za-z]+)\s+(20\d{2})", text, re.IGNORECASE)
     if not heading or heading.group(1).lower() not in MONTHS:
         return []
     month = MONTHS[heading.group(1).lower()]
     year = int(heading.group(2))
     events = []
     pattern = re.compile(
-        r"2:00\\s*p\\.m\\.\\s+FOMC Minutes\\s+Meeting of\\s+"
-        r"[A-Za-z]+\\s+\\d{1,2}\\s*[-–]\\s*\\d{1,2}\\s+(\\d{1,2})\\b",
+        r"2:00\s*p\.m\.\s+FOMC Minutes\s+Meeting of\s+"
+        r"[A-Za-z]+\s+\d{1,2}\s*[-–]\s*\d{1,2}\s+(\d{1,2})\b",
         re.IGNORECASE,
     )
     for match in pattern.finditer(text):
