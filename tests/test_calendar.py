@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_fed_monthly_calendar, parse_wasde_calendar, relevant_events, scheduled_weekly_claims,
 )
 
 
@@ -57,6 +57,23 @@ class CalendarTests(unittest.TestCase):
         events = parse_fomc_calendar(html, now=now, days=60)
         self.assertEqual(len(events), 2)
         self.assertEqual(events[0]["date_utc"], "2026-11-28T19:00:00+00:00")
+
+    def test_fed_monthly_minutes_uses_official_release_day_and_utc(self):
+        html = """<h1>Calendar</h1><h2>November 2026</h2>
+        <div>FOMC Meetings Time: Release Date(s):
+        2:00 p.m. FOMC Minutes Meeting of October 27-28 18
+        </div>"""
+        now = datetime(2026, 11, 18, 18, 30, tzinfo=timezone.utc)
+        events = parse_fed_monthly_calendar(html, now=now, days=7)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["date_utc"], "2026-11-18T19:00:00+00:00")
+        self.assertEqual(events[0]["event"], "FOMC Minutes")
+        self.assertEqual(events[0]["source"], "Federal Reserve")
+
+    def test_fed_monthly_minutes_does_not_invent_event(self):
+        html = "<h1>Calendar</h1><h2>November 2026</h2><p>No FOMC minutes</p>"
+        now = datetime(2026, 11, 18, 18, 30, tzinfo=timezone.utc)
+        self.assertEqual(parse_fed_monthly_calendar(html, now=now), [])
 
     def test_wasde_parser_reads_official_annual_dates(self):
         html = "<h3>2026 WASDE Release Dates (12:00pm ET)</h3> In 2026 the WASDE report will be released on Jan. 12, Feb. 10, Nov. 10, and Dec. 10."
