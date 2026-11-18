@@ -158,6 +158,38 @@ def parse_fomc_calendar(html: str, now: datetime | None = None, days: int = 180)
     return sorted(events, key=lambda item: item["date_utc"])
 
 
+def parse_fed_monthly_calendar(html: str, now: datetime | None = None, days: int = 45) -> list[dict]:
+    """Read actual FOMC Minutes release dates from the Fed's monthly event calendar.
+
+    The FOMC meeting calendar lists meeting dates, not minutes publication dates.
+    The monthly news/events calendar explicitly publishes the release day and time.
+    """
+    now = now or datetime.now(timezone.utc)
+    text = _html_text(html)
+    heading = re.search(r"Calendar\\s+([A-Za-z]+)\\s+(20\\d{2})", text, re.IGNORECASE)
+    if not heading or heading.group(1).lower() not in MONTHS:
+        return []
+    month = MONTHS[heading.group(1).lower()]
+    year = int(heading.group(2))
+    events = []
+    pattern = re.compile(
+        r"2:00\\s*p\\.m\\.\\s+FOMC Minutes\\s+Meeting of\\s+"
+        r"[A-Za-z]+\\s+\\d{1,2}\\s*[-–]\\s*\\d{1,2}\\s+(\\d{1,2})\\b",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(text):
+        try:
+            release_day = date(year, month, int(match.group(1)))
+        except ValueError:
+            continue
+        stamp = datetime.combine(release_day, time(14, 0), tzinfo=ET).astimezone(timezone.utc)
+        if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
+            url = f"https://www.federalreserve.gov/newsevents/{year}-{release_day.strftime('%B')}.htm"
+            events.append(_event(f"FED:MINUTES:{release_day.isoformat()}", stamp,
+                                 "FOMC Minutes", "Federal Reserve", url))
+    return events
+
+
 def parse_wasde_calendar(html: str, now: datetime | None = None, days: int = 180) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     text = _html_text(html)
@@ -208,10 +240,20 @@ def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
     """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
+    # Fetch monthly Fed release calendars covering the scan horizon.
+    first_month = datetime.now(ET).date().replace(day=1)
+    last_day = first_month + timedelta(days=days + 31)
+    fed_months = []
+    month_cursor = first_month
+    while month_cursor <= last_day:
+        url = f"https://www.federalreserve.gov/newsevents/{month_cursor.year}-{month_cursor.strftime('%B')}.htm"
+        fed_months.append((url, lambda html: parse_fed_monthly_calendar(html, days=days)))
+        month_cursor = (month_cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
     sources = (
         (f"https://www.bls.gov/schedule/{current_year}/", parse_bls_calendar),
         (EIA_URL, lambda html: parse_eia_schedule(html, days=days)),
         (FED_URL, lambda html: parse_fomc_calendar(html, days=days)),
+        *fed_months,
         (USDA_URL, lambda html: parse_wasde_calendar(html, days=days)),
     )
 
