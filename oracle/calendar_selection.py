@@ -55,16 +55,16 @@ def _bias(event, asset, news):
             surprise *= -1
             if asset.name in ("WTI", "Brent"):
                 return ("LONG" if surprise > 0 else "SHORT",
-                        "scorte effettive vs attese" if released else "scorte previste vs precedenti", released)
+                        "iscortas publicadas cunfrontadas cun sas previssiones" if released else "previssiones de sas iscortas", released)
         if any(x in title for x in GROWTH + INFLATION + INVERSE):
             if asset.name == "Gold":
                 surprise *= -1
             return ("LONG" if surprise > 0 else "SHORT",
-                    "dato effettivo vs previsione" if released else "previsione vs precedente", released)
+                    "dadu publicadu cunfrontadu cun sa previssione" if released else "previssione cunfrontada cun su dadu pretzedente", released)
     score, matched = score_news(asset, news)
     if score:
-        return ("LONG" if score > 0 else "SHORT", "notizie: " + matched[0].title[:90], False)
-    return ("NON DETERMINABILE", "nessun dato direzionale verificabile", False)
+        return ("LONG" if score > 0 else "SHORT", "noas: " + matched[0].title[:90], False)
+    return ("NON DETERMINABILE", "perunu dadu verificabile pro sa diretzione", False)
 
 def run_calendar_selection(events, now, news):
     """Select exactly two eligible instruments per event, notify once per phase/change."""
@@ -102,13 +102,13 @@ def run_calendar_selection(events, now, news):
             continue
         rows = []
         for asset, (direction, why, verified) in actionable:
-            qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
+            qualification = "dadu publicadu e cunfirmadu" if verified else "dadu non cunfirmadu"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
-        message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
-                   f"{event.get('event')} | {phase} pubblicazione\n"
+        message = ("🔴 ISTELLA ROSSA — CALENDÀRIU USA\n"
+                   f"{event.get('event')} | {'INNANTI' if phase == 'PRIMA' else 'A PUSTIS'} de sa publicatzione\n"
                    + "\n".join(rows) +
                    "\nFonte: Forex Factory — " + event.get("url", "") +
-                   "\nSolo ricerca/paper; nessun ordine automatico.")
+                   "\nPetzi istùdiu/paper; perunu òrdine automàticu.")
         if send_telegram_status(message):
             save_scheduler_state(key, {"assets":[a.name for a, _ in actionable],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
