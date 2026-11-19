@@ -18,7 +18,7 @@ INFLATION = ("cpi", "ppi", "inflation", "price index", "pce")
 INVERSE = ("unemployment claims", "jobless claims", "unemployment rate")
 INVENTORY = ("crude oil inventories", "oil inventories", "petroleum")
 def _number(value):
-    match = re.fullmatch(r"\\s*([+-]?[\\d,.]+)\\s*([KMB%]?)\\s*", str(value or ""), re.I)
+    match = re.fullmatch(r"\s*([+-]?[\d,.]+)\s*([KMB%]?)\s*", str(value or ""), re.I)
     if not match:
         return None
     try:
@@ -97,11 +97,11 @@ def run_calendar_selection(events, now, news):
         for asset, (direction, why, verified) in zip(assets,directions):
             qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
-        message = ("🔴 STELLA ROSSA — CALENDARIO USA\\n"
-                   f"{event.get('event')} | {phase} pubblicazione\\n"
-                   + "\\n".join(rows) +
-                   "\\nFonte: Forex Factory — " + event.get("url", "") +
-                   "\\nSolo ricerca/paper; nessun ordine automatico.")
+        message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
+                   f"{event.get('event')} | {phase} pubblicazione\n"
+                   + "\n".join(rows) +
+                   "\nFonte: Forex Factory — " + event.get("url", "") +
+                   "\nSolo ricerca/paper; nessun ordine automatico.")
         if send_telegram_status(message):
             save_scheduler_state(key, {"assets":[a.name for a in assets],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
