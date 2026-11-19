@@ -9,6 +9,7 @@ from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
 )
+from .calendar_selection import run_calendar_selection
 from .notify import send_telegram
 
 NEWS_SCAN_MINUTES = 5
@@ -44,7 +45,7 @@ def main():
             previous = datetime.fromisoformat(last_calendar_scan)
             if previous.tzinfo is None:
                 previous = previous.replace(tzinfo=timezone.utc)
-            calendar_due = started - previous >= timedelta(hours=1)
+            calendar_due = started - previous >= timedelta(minutes=5)
         except (TypeError, ValueError):
             calendar_due = True
 
@@ -75,6 +76,17 @@ def main():
         and event.get("id", "").split(":")[0] not in {"DOL"}
     ]
     print(f"[CALENDAR] official-source events={len(calendar_events)}")
+
+    # Calendar-first mode: two assets per USD event; no technical scans or
+    # directional-score threshold. Refresh results on each five-minute wake-up.
+    try:
+        news = collect_news()
+    except Exception as exc:
+        print(f"[NEWS] unavailable: {type(exc).__name__}")
+        news = []
+    run_calendar_selection(calendar_events, started, news)
+    save_scan_meta(started, len(news), 0)
+    return
 
     # Audit the next 24h of mapped releases, including when no scan is due.
     upcoming = []
