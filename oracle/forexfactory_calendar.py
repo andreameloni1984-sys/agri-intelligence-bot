@@ -13,7 +13,7 @@ def parse_calendar(rows, now=None):
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if row.get("country") != "USD" or row.get("impact") != "High":
+        if row.get("country") != "USD":
             continue
         try:
             stamp = datetime.fromisoformat(str(row["date"]).replace("Z", "+00:00"))
@@ -31,7 +31,7 @@ def parse_calendar(rows, now=None):
             "id": f"FF:{stamp.isoformat()}:{title}",
             "date_utc": stamp.isoformat(), "event": title,
             "country": "US", "source": "Forex Factory",
-            "importance": "HIGH", "url": CALENDAR_PAGE,
+            "importance": str(row.get("impact") or "UNKNOWN").upper(), "url": CALENDAR_PAGE,
             "forecast": str(row.get("forecast") or ""),
             "previous": str(row.get("previous") or ""),
         })
@@ -42,7 +42,7 @@ def fetch_calendar(days=7):
         response = requests.get(URL, timeout=15, headers={"User-Agent": "StellaRossaCalendar/1.0"})
         response.raise_for_status()
         events = parse_calendar(response.json())
-        print(f"[CALENDAR] Forex Factory high-impact USD events={len(events)}")
+        print(f"[CALENDAR] Forex Factory all USD events={len(events)}")
         return events
     except (requests.RequestException, ValueError, TypeError) as exc:
         print(f"[CALENDAR ERROR] Forex Factory unavailable: {type(exc).__name__}")
