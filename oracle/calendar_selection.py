@@ -90,11 +90,16 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
-        signature = phase + "|" + "|".join(a.name + ":" + d[0] for a,d in zip(assets,directions))
+        # Never notify Telegram for calendar events without a verified directional release.
+        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2]]
+        if not actionable:
+            print(f"[SILENT] event={event['id']} no verified directional release")
+            continue
+        signature = "|".join(a.name + ":" + d[0] for a,d in actionable)
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
-        for asset, (direction, why, verified) in zip(assets,directions):
+        for asset, (direction, why, verified) in actionable:
             qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
@@ -103,5 +108,5 @@ def run_calendar_selection(events, now, news):
                    "\nFonte: Forex Factory — " + event.get("url", "") +
                    "\nSolo ricerca/paper; nessun ordine automatico.")
         if send_telegram_status(message):
-            save_scheduler_state(key, {"assets":[a.name for a in assets],"signature":signature})
+            save_scheduler_state(key, {"assets":[a.name for a, _ in actionable],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
