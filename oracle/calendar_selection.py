@@ -6,6 +6,7 @@ from .config import UNIVERSE
 from .analysis import score_news
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
+from .market import fetch_quotes
 
 ASSETS = {item.name: item for item in UNIVERSE}
 # Priority resolves events affecting many assets; no importance filter.
@@ -44,8 +45,8 @@ def _bias(event, asset, news):
     forecast = _number(event.get("forecast"))
     previous = _number(event.get("previous"))
     released = actual is not None
-    baseline = forecast if released else previous
-    observed = actual if released else forecast
+    baseline = forecast if released else None
+    observed = actual if released else None
     if observed is not None and baseline is not None and observed != baseline:
         surprise = 1 if observed > baseline else -1
         if any(x in title for x in INVERSE):
@@ -76,7 +77,7 @@ def run_calendar_selection(events, now, news):
             delta = (stamp - now).total_seconds() / 60
         except (ValueError, TypeError, KeyError):
             continue
-        if -120 <= delta <= 15:
+        if -120 <= delta <= 30:
             relevant.append((abs(delta), delta, event))
     for _, delta, event in sorted(relevant, key=lambda x:x[0]):
         assets = _assets(event)
@@ -90,12 +91,24 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
-        signature = phase + "|" + "|".join(a.name + ":" + d[0] for a,d in zip(assets,directions))
+        selected_symbols = [a.symbol for a, d in zip(assets, directions) if d[0] != "NON DETERMINABILE"]
+        quotes = fetch_quotes(selected_symbols) if selected_symbols else {}
+        print(f"[MARKET VALIDATION] event={event['id']} requested={len(selected_symbols)} quotes={len(quotes)}")
+        checked = []
+        for asset, (direction, reason, verified) in zip(assets, directions):
+            quote = quotes.get(asset.symbol)
+            if direction == "NON DETERMINABILE" or quote is None:
+                checked.append((direction, reason + ("; prezzo assente" if direction != "NON DETERMINABILE" else ""), False))
+                continue
+            aligned = quote.price > quote.previous_close if direction == "LONG" else quote.price < quote.previous_close
+            checked.append((direction, reason + ("; mercato coerente" if aligned else "; mercato contrario") + f" prezzo={quote.price:.4f}", verified and aligned))
+        directions = checked
+        signature = phase + "|" + "|".join(a.name + ":" + d[0] + ":" + str(d[2]) for a,d in zip(assets,directions))
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
         for asset, (direction, why, verified) in zip(assets,directions):
-            qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
+            qualification = "dato pubblicato e mercato coerente" if verified else "NON CONFERMATO"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
                    f"{event.get('event')} | {phase} pubblicazione\n"
