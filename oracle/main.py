@@ -35,8 +35,8 @@ def main():
 
     # Official schedules change infrequently: refresh every six hours, not every
     # five-minute wake-up. Retain the last successful schedule on source failure.
-    calendar_events = get_scheduler_state("cached_calendar", [])
-    last_calendar_scan = get_scheduler_state("last_calendar_scan")
+    calendar_events = get_scheduler_state("cached_calendar_official_v12", [])
+    last_calendar_scan = get_scheduler_state("last_calendar_scan_official_v12")
     calendar_due = True
     if last_calendar_scan:
         try:
@@ -53,17 +53,28 @@ def main():
             if fresh_calendar:
                 calendar_events = fresh_calendar
                 save_calendar_events(calendar_events)
-                save_scheduler_state("cached_calendar", calendar_events)
+                save_scheduler_state("cached_calendar_official_v12", calendar_events)
             # If every official source returns no events, retry in one hour rather than six.
             # Keep the last successful calendar and do not trigger market scans.
             retry_reference = started - timedelta(hours=5) if not fresh_calendar else started
-            save_scheduler_state("last_calendar_scan", retry_reference.isoformat())
+            save_scheduler_state("last_calendar_scan_official_v12", retry_reference.isoformat())
             print(f"[CALENDAR] refreshed events={len(fresh_calendar)} cached={len(calendar_events)}")
         except Exception as exc:
             errors.append(f"calendar:{type(exc).__name__}")
             print(f"[CALENDAR] refresh failed: {type(exc).__name__}; cached events={len(calendar_events)}")
     else:
         print(f"[CALENDAR] using cached events={len(calendar_events)}")
+
+    # Reject events persisted by the removed Forex Factory/ShowMyTrades pipeline.
+    # A restored GitHub Actions SQLite cache can outlive a source-code rollback.
+    trusted_sources = {"BLS", "EIA", "Federal Reserve", "USDA", "DOL"}
+    legacy_count = len(calendar_events)
+    calendar_events = [
+        event for event in calendar_events
+        if event.get("source") in trusted_sources
+    ]
+    if legacy_count != len(calendar_events):
+        print(f"[CALENDAR CACHE CLEANUP] removed_legacy={legacy_count-len(calendar_events)}")
 
     # GitHub Actions has a static cron, so it wakes every five minutes only to
     # evaluate the cached official schedule. Market/news downloads begin only
