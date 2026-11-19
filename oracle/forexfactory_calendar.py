@@ -50,12 +50,14 @@ def _secondary_calendar(days=7, now=None):
     )
     response.raise_for_status()
     payload = response.json()
-    rows = payload.get("events", [])
+    if not isinstance(payload, dict):
+        raise ValueError("Secondary calendar response must be an object")
+    rows = payload.get("events")
     if not isinstance(rows, list):
         raise ValueError("Secondary calendar events must be a list")
     events = []
     for row in rows:
-        if not isinstance(row, dict) or row.get("currency") != "USD":
+        if not isinstance(row, dict) or str(row.get("currency", "")).upper() != "USD":
             continue
         try:
             stamp = datetime.fromisoformat(str(row["time"]).replace("Z", "+00:00"))
@@ -102,21 +104,30 @@ def _deduplicate(events):
 
 
 def fetch_calendar(days=7):
+    """Use the documented JSON API first; keep Forex Factory as independent fallback.
+
+    An unavailable calendar is not a successful empty calendar.
+    """
     sources = []
-    try:
-        response = requests.get(URL, timeout=12, headers={"User-Agent": "StellaRossaCalendar/1.1"})
-        response.raise_for_status()
-        primary = parse_calendar(response.json())
-        sources.extend(primary)
-        print(f"[CALENDAR] Forex Factory events={len(primary)}")
-    except (requests.RequestException, ValueError, TypeError) as exc:
-        print(f"[CALENDAR ERROR] Forex Factory: {type(exc).__name__}")
+    failures = []
     try:
         secondary = _secondary_calendar(days=days)
         sources.extend(secondary)
-        print(f"[CALENDAR] ShowMyTrades events={len(secondary)}")
+        print(f"[CALENDAR SOURCE OK] ShowMyTrades events={len(secondary)}")
     except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
-        print(f"[CALENDAR ERROR] ShowMyTrades: {type(exc).__name__}")
+        failures.append("ShowMyTrades")
+        print(f"[CALENDAR SOURCE FAILED] ShowMyTrades: {type(exc).__name__}: {str(exc)[:160]}")
+    try:
+        response = requests.get(URL, timeout=12, headers={"User-Agent": "StellaRossaCalendar/1.2"})
+        response.raise_for_status()
+        primary = parse_calendar(response.json())
+        sources.extend(primary)
+        print(f"[CALENDAR SOURCE OK] Forex Factory events={len(primary)}")
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        failures.append("Forex Factory")
+        print(f"[CALENDAR SOURCE FAILED] Forex Factory: {type(exc).__name__}: {str(exc)[:160]}")
+    if len(failures) == 2:
+        raise RuntimeError("Both economic calendar providers unavailable: " + ", ".join(failures))
     merged = _deduplicate(sources)
-    print(f"[CALENDAR] merged USD events={len(merged)} raw={len(sources)}")
+    print(f"[CALENDAR RESULT] merged_USD_events={len(merged)} raw={len(sources)} failed_sources={','.join(failures) or 'none'}")
     return merged
