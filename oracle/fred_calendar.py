@@ -76,9 +76,7 @@ def fetch_fred_calendar(days=7):
             response = requests.get(URL, params={
                 "api_key": key, "file_type": "json",
                 "include_release_dates_with_no_data": "true",
-                "realtime_start": today.isoformat(),
-                "realtime_end": end.isoformat(),
-                "order_by": "release_date", "sort_order": "asc",
+                "order_by": "release_date", "sort_order": "desc",
                 "limit": 1000, "offset": offset,
             }, timeout=15)
             response.raise_for_status()
@@ -86,7 +84,10 @@ def fetch_fred_calendar(days=7):
             rows = data.get("release_dates", [])
             all_rows.extend(rows)
             offset += len(rows)
-            if not rows or offset >= int(data.get("count", 0)):
+            # Descending releases: once past today, later pages are older.
+            if (not rows or offset >= int(data.get("count", 0))
+                    or any(str(row.get("date", "")) < today.isoformat() for row in rows)
+                    or offset >= 5000):
                 break
         events = parse_fred_releases({"release_dates": all_rows}, days=days)
         print(f"[CALENDAR] FRED rows={len(all_rows)} eligible={len(events)}")
