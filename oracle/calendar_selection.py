@@ -6,7 +6,6 @@ from .config import UNIVERSE
 from .analysis import score_news
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
-from .market import fetch_quotes
 
 ASSETS = {item.name: item for item in UNIVERSE}
 # Priority resolves events affecting many assets; no importance filter.
@@ -45,8 +44,8 @@ def _bias(event, asset, news):
     forecast = _number(event.get("forecast"))
     previous = _number(event.get("previous"))
     released = actual is not None
-    baseline = forecast if released else None
-    observed = actual if released else None
+    baseline = forecast if released else previous
+    observed = actual if released else forecast
     if observed is not None and baseline is not None and observed != baseline:
         surprise = 1 if observed > baseline else -1
         if any(x in title for x in INVERSE):
@@ -55,19 +54,19 @@ def _bias(event, asset, news):
             surprise *= -1
             if asset.name in ("WTI", "Brent"):
                 return ("LONG" if surprise > 0 else "SHORT",
-                        "iscortas publicadas cunfrontadas cun sas previssiones" if released else "previssiones de sas iscortas", released)
+                        "scorte effettive vs attese" if released else "scorte previste vs precedenti", released)
         if any(x in title for x in GROWTH + INFLATION + INVERSE):
             if asset.name == "Gold":
                 surprise *= -1
             return ("LONG" if surprise > 0 else "SHORT",
-                    "dadu publicadu cunfrontadu cun sa previssione" if released else "previssione cunfrontada cun su dadu pretzedente", released)
+                    "dato effettivo vs previsione" if released else "previsione vs precedente", released)
     score, matched = score_news(asset, news)
     if score:
-        return ("LONG" if score > 0 else "SHORT", "noas: " + matched[0].title[:90], False)
-    return ("NON DETERMINABILE", "perunu dadu verificabile pro sa diretzione", False)
+        return ("LONG" if score > 0 else "SHORT", "notizie: " + matched[0].title[:90], False)
+    return ("NON DETERMINABILE", "nessun dato direzionale verificabile", False)
 
 def run_calendar_selection(events, now, news):
-    """Select at most two eligible instruments per event; notify on market-aligned directional evidence."""
+    """Select exactly two eligible instruments per event, notify once per phase/change."""
     relevant = []
     for event in events:
         try:
@@ -77,10 +76,13 @@ def run_calendar_selection(events, now, news):
             delta = (stamp - now).total_seconds() / 60
         except (ValueError, TypeError, KeyError):
             continue
-        if -120 <= delta <= 30:
+        if -120 <= delta <= 15:
             relevant.append((abs(delta), delta, event))
     for _, delta, event in sorted(relevant, key=lambda x:x[0]):
         assets = _assets(event)
+        if len(assets) < 2:
+            # Preserve two candidates even for a narrowly mapped event.
+            assets += [ASSETS[n] for n in PRIORITY if n in ASSETS and ASSETS[n] not in assets][:2-len(assets)]
         phase = "PRIMA" if delta >= 0 else "DOPO"
         key = "calendar_pair:" + event["id"]
         old = get_scheduler_state(key, {})
@@ -88,27 +90,18 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
-        # Check market only for the selected assets and only with directional evidence.
-        symbols = [a.symbol for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT")]
-        quotes = fetch_quotes(symbols) if symbols else {}
-        print(f"[MARKET VALIDATION] event={event['id']} requested={len(symbols)} received={len(quotes)}")
-        # Notify only when a directional release or news catalyst aligns with an available market quote.
-        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and a.symbol in quotes and ((quotes[a.symbol].price > quotes[a.symbol].previous_close) if d[0] == "LONG" else (quotes[a.symbol].price < quotes[a.symbol].previous_close))]
-        if not actionable:
-            print(f"[SILENT] event={event['id']} no directional news/release aligned with market")
-            continue
-        signature = "|".join(a.name + ":" + d[0] for a,d in actionable)
+        signature = phase + "|" + "|".join(a.name + ":" + d[0] for a,d in zip(assets,directions))
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
-        for asset, (direction, why, verified) in actionable:
-            qualification = "dadu publicadu e cunfirmadu" if verified else "ipòtesi dae sas noas, non cunfirmada"
+        for asset, (direction, why, verified) in zip(assets,directions):
+            qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
-        message = ("🔴 ISTELLA ROSSA — CALENDÀRIU USA\n"
-                   f"{event.get('event')} | {'INNANTI' if phase == 'PRIMA' else 'A PUSTIS'} de sa publicatzione\n"
+        message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
+                   f"{event.get('event')} | {phase} pubblicazione\n"
                    + "\n".join(rows) +
                    "\nFonte: Forex Factory — " + event.get("url", "") +
-                   "\nPetzi istùdiu/paper; perunu òrdine automàticu.")
+                   "\nSolo ricerca/paper; nessun ordine automatico.")
         if send_telegram_status(message):
-            save_scheduler_state(key, {"assets":[a.name for a, _ in actionable],"signature":signature})
+            save_scheduler_state(key, {"assets":[a.name for a in assets],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
