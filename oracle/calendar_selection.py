@@ -82,9 +82,6 @@ def run_calendar_selection(events, now, news):
             relevant.append((abs(delta), delta, event))
     for _, delta, event in sorted(relevant, key=lambda x:x[0]):
         assets = _assets(event)
-        if len(assets) < 2:
-            # Preserve two candidates even for a narrowly mapped event.
-            assets += [ASSETS[n] for n in PRIORITY if n in ASSETS and ASSETS[n] not in assets][:2-len(assets)]
         phase = "PRIMA" if delta >= 0 else "DOPO"
         key = "calendar_pair:" + event["id"]
         old = get_scheduler_state(key, {})
@@ -104,11 +101,15 @@ def run_calendar_selection(events, now, news):
             aligned = quote.price > quote.previous_close if direction == "LONG" else quote.price < quote.previous_close
             checked.append((direction, reason + ("; mercato coerente" if aligned else "; mercato contrario") + f" prezzo={quote.price:.4f}", verified and aligned))
         directions = checked
-        signature = phase + "|" + "|".join(a.name + ":" + d[0] + ":" + str(d[2]) for a,d in zip(assets,directions))
+        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2]]
+        if not actionable:
+            print(f"[SILENT] event={event['id']} no verified directional market signal")
+            continue
+        signature = "|".join(a.name + ":" + d[0] for a, d in actionable)
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
-        for asset, (direction, why, verified) in zip(assets,directions):
+        for asset, (direction, why, verified) in actionable:
             qualification = "dato pubblicato e mercato coerente" if verified else "NON CONFERMATO"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
@@ -117,5 +118,5 @@ def run_calendar_selection(events, now, news):
                    "\nFonte: Forex Factory — " + event.get("url", "") +
                    "\nSolo ricerca/paper; nessun ordine automatico.")
         if send_telegram_status(message):
-            save_scheduler_state(key, {"assets":[a.name for a in assets],"signature":signature})
+            save_scheduler_state(key, {"assets":[a.name for a, _ in actionable],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
