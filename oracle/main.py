@@ -100,7 +100,7 @@ def main():
 
     # GitHub Actions has a static cron, so it wakes every five minutes only to
     # evaluate the cached official schedule. Market/news downloads begin only
-    # 30 minutes before a mapped release, and continue for 120 minutes after it.
+    # 15 minutes before a mapped release, and continue for 120 minutes after it.
     # Outside those windows this exits before news, quotes, technical analysis or alerts.
     active = {}
     for instrument in UNIVERSE:
@@ -108,7 +108,7 @@ def main():
         context = [
             item for item in context
             if item["phase"] == "APPENA PUBBLICATO"
-            or (item["phase"] == "IN ARRIVO" and item["minutes_to_event"] <= 30)
+            or (item["phase"] == "IN ARRIVO" and item["minutes_to_event"] <= 15)
         ]
         if context:
             active[instrument] = context
@@ -162,7 +162,7 @@ def main():
         nearest = context[0]
         event_key = nearest["source"] + "|" + nearest["event"] + "|" + nearest["date_utc"]
         chosen = get_scheduler_state("selected_event:" + event_key, [])
-        if not isinstance(chosen, list) or not chosen or instrument.symbol in chosen:
+        if not isinstance(chosen, list) or not chosen or any(old == instrument.symbol or old.startswith(instrument.symbol + ":") for old in chosen):
             focused[instrument] = context
         else:
             print(f"[FOCUSED OUT] {instrument.name} event={event_key}")
@@ -235,7 +235,7 @@ def main():
             errors.append(f"{instrument.symbol}:{type(exc).__name__}")
             print(f"[ANALYSIS] {instrument.name} failed: {type(exc).__name__}")
 
-    # Calendar-driven selection: compare all candidates first, then alert at most
+    # Calendar-driven selection: compare news-led candidates first, then alert at most
     # two distinct commodities per official release. Persist selections across
     # scheduled runs via the restored SQLite scheduler journal.
     calendar_groups = {}
@@ -255,7 +255,7 @@ def main():
         chosen = get_scheduler_state(state_key, [])
         if not isinstance(chosen, list):
             chosen = []
-        # Prioritize confidence, then technical/news agreement. No extra
+        # Prioritize news-backed confidence. No extra
         # provider calls and no calendar-only directional assumptions.
         options.sort(
             key=lambda row: (
@@ -266,12 +266,18 @@ def main():
             reverse=True,
         )
         for signal, instrument, status, news_score, nearest in options:
-            if instrument.symbol in chosen or len(chosen) >= 2:
+            # Store direction, not only symbol, so a fresh opposing news
+            # catalyst can produce an inversion alert after publication.
+            choice = instrument.symbol + ":" + signal.direction
+            if choice in chosen or (len(chosen) >= 2 and not any(
+                old.startswith(instrument.symbol + ":") for old in chosen
+            )):
                 print(f"[RANKED_OUT] {instrument.name} event={event_key} selected={chosen}")
                 continue
             is_new = save_result(signal, instrument.name, instrument.symbol, status)
             if is_new and send_telegram(signal):
-                chosen.append(instrument.symbol)
+                chosen = [old for old in chosen if not old.startswith(instrument.symbol + ":")]
+                chosen.append(choice)
                 save_scheduler_state(state_key, chosen)
                 print(f"[SELECTED] {instrument.name} event={event_key} rank={len(chosen)}")
             elif is_new:
