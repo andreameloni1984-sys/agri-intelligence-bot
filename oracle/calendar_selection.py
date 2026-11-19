@@ -122,18 +122,36 @@ def run_calendar_selection(events, now, news):
         if not any(direction in ("LONG", "SHORT") for direction, _, _ in directions):
             print(f"[CALENDAR SILENT] {event['id']} no directional evidence")
             continue
-        signature = phase + "|" + "|".join(a.name + ":" + d[0] + ":" + d[1] for a,d in zip(assets,directions))
-        if isinstance(old,dict) and old.get("signature") == signature:
+        # Do not resend every five minutes solely because the quote percentage changed.
+        signature = phase + "|" + "|".join(
+            a.name + ":" + d[0] + ":" + str(d[2]) for a, d in zip(assets, directions)
+        )
+        if isinstance(old, dict) and old.get("signature") == signature:
             continue
         rows = []
-        for asset, (direction, why, verified) in zip(assets,directions):
-            qualification = "dato pubblicato" if verified else "ipotesi non confermata"
-            rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
-        message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
-                   f"{event.get('event')} | {phase} pubblicazione\n"
-                   + "\n".join(rows) +
-                   "\nFonte: Forex Factory — " + event.get("url", "") +
-                   "\nSolo ricerca/paper; nessun ordine automatico.")
+        for index, (asset, (direction, why, verified)) in enumerate(zip(assets, directions), 1):
+            qualification = "dato pubblicato" if verified else "ipotesi preliminare"
+            if direction == "NON DETERMINABILE":
+                instruction = "NON ENTRARE: mancano dati sufficienti per una direzione."
+            elif phase == "PRIMA":
+                instruction = "ATTENDERE la pubblicazione; osservare il prezzo senza anticipare un ingresso."
+            elif "prezzo contrario" in why:
+                instruction = "NON ENTRARE: il prezzo contraddice lo scenario; attendere conferma."
+            else:
+                instruction = "Verificare conferma del prezzo e rischio prima di qualsiasi ingresso manuale."
+            rows.append(
+                f"{index}. {asset.name} — {direction} ({qualification})\n"
+                f"Analisi: {why}.\n"
+                f"Istruzioni: {instruction}"
+            )
+        source = str(event.get("source") or "Calendario pubblico")
+        message = (
+            "🔴 STELLA ROSSA — CALENDARIO USA\n"
+            f"Evento: {event.get('event')} | {phase} pubblicazione\n\n"
+            + "\n\n".join(rows)
+            + f"\n\nFonte: {source} — {event.get('url', '')}"
+            + "\nPAPER ONLY — nessun ordine automatico."
+        )
         if send_telegram_status(message):
             save_scheduler_state(key, {"assets":[a.name for a in assets],"signature":signature})
             print(f"[CALENDAR PAIR] {event['id']} {signature}")
