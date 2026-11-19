@@ -84,6 +84,8 @@ def main():
     except Exception as exc:
         print(f"[NEWS] unavailable: {type(exc).__name__}")
         news = []
+    run_calendar_selection(calendar_events, started, news)
+
     # Continue into the full event-driven market scan below.
     # Do not stop after calendar selection: the remaining pipeline fetches
     # quotes, evaluates signals, and records scan outcomes.
