@@ -239,6 +239,15 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
 # Scheduled releases mapped to the instruments they can materially affect.
 # Calendar events provide context only: they never invent a LONG/SHORT outcome.
 EVENT_ASSETS = {
+    "crude oil inventories": {"WTI", "Brent"},
+    "non-farm employment change": {"Gold", "Copper", "WTI", "Brent"},
+    "unemployment claims": {"Gold", "Copper"},
+    "philly fed manufacturing index": {"Gold", "Copper"},
+    "fomc meeting minutes": {"Gold", "Copper", "WTI", "Brent"},
+    "federal funds rate": {"Gold", "Copper", "WTI", "Brent"},
+    "core pce price index": {"Gold", "Copper"},
+    "retail sales": {"Gold", "Copper"},
+    "prelim uom consumer sentiment": {"Gold", "Copper"},
     "eia": {"WTI", "Brent"},
     "petroleum status": {"WTI", "Brent"},
     "wasde": {"Wheat", "Corn", "Soybeans"},
