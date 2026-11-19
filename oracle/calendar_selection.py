@@ -90,6 +90,10 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
+        # Never send an alert without a substantiated directional hypothesis.
+        if not any(direction in ("LONG", "SHORT") for direction, _, _ in directions):
+            print(f"[CALENDAR SILENT] {event['id']} no directional evidence")
+            continue
         signature = phase + "|" + "|".join(a.name + ":" + d[0] for a,d in zip(assets,directions))
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
