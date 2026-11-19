@@ -4,6 +4,7 @@ import re
 from .calendar import EVENT_ASSETS
 from .config import UNIVERSE
 from .analysis import score_news
+from .market import fetch_quotes
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
 
@@ -17,6 +18,7 @@ GROWTH = ("employment", "payroll", "manufacturing", "retail sales", "gdp",
 INFLATION = ("cpi", "ppi", "inflation", "price index", "pce")
 INVERSE = ("unemployment claims", "jobless claims", "unemployment rate")
 INVENTORY = ("crude oil inventories", "oil inventories", "petroleum")
+CREDIT_STRESS = ("mortgage delinquencies", "loan delinquencies", "mortgage defaults")
 def _number(value):
     match = re.fullmatch(r"\s*([+-]?[\d,.]+)\s*([KMB%]?)\s*", str(value or ""), re.I)
     if not match:
@@ -48,6 +50,9 @@ def _bias(event, asset, news):
     observed = actual if released else forecast
     if observed is not None and baseline is not None and observed != baseline:
         surprise = 1 if observed > baseline else -1
+        if any(x in title for x in CREDIT_STRESS):
+            direction = ("LONG" if surprise > 0 else "SHORT") if asset.name == "Gold" else ("SHORT" if surprise > 0 else "LONG")
+            return (direction, "stress creditizio: dato vs atteso" if released else "stress creditizio: previsione vs precedente", released)
         if any(x in title for x in INVERSE):
             surprise *= -1
         if any(x in title for x in INVENTORY):
@@ -63,6 +68,8 @@ def _bias(event, asset, news):
     score, matched = score_news(asset, news)
     if score:
         return ("LONG" if score > 0 else "SHORT", "notizie: " + matched[0].title[:90], False)
+    if any(x in title for x in CREDIT_STRESS):
+        return ("LONG" if asset.name == "Gold" else "SHORT", "scenario condizionale: insolvenze in aumento, non confermato dal dato", False)
     return ("NON DETERMINABILE", "nessun dato direzionale verificabile", False)
 
 def run_calendar_selection(events, now, news):
@@ -90,16 +97,37 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
+        # News -> selection -> market analysis -> direction; only selected quotes.
+        try:
+            quotes = fetch_quotes([asset.symbol for asset in assets])
+        except Exception as exc:
+            print(f"[CALENDAR MARKET] quote fetch failed: {type(exc).__name__}")
+            quotes = {}
+        assessed = []
+        for asset, (direction, why, verified) in zip(assets, directions):
+            quote = quotes.get(asset.symbol)
+            if quote and quote.last > 0 and quote.previous_close > 0:
+                change = 100 * (quote.last / quote.previous_close - 1)
+                price_direction = "LONG" if change > 0 else "SHORT" if change < 0 else None
+                if direction == "NON DETERMINABILE" and price_direction:
+                    direction = price_direction
+                    why = f"movimento osservato su candela 15m ({change:+.3f}%), causalita non verificata"
+                else:
+                    why += f"; prezzo 15m {change:+.3f}%"
+                    if price_direction and direction != price_direction:
+                        why += " (prezzo contrario allo scenario)"
+            assessed.append((direction, why, verified))
+        directions = assessed
         # Never send an alert without a substantiated directional hypothesis.
         if not any(direction in ("LONG", "SHORT") for direction, _, _ in directions):
             print(f"[CALENDAR SILENT] {event['id']} no directional evidence")
             continue
-        signature = phase + "|" + "|".join(a.name + ":" + d[0] for a,d in zip(assets,directions))
+        signature = phase + "|" + "|".join(a.name + ":" + d[0] + ":" + d[1] for a,d in zip(assets,directions))
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
         for asset, (direction, why, verified) in zip(assets,directions):
-            qualification = "dato pubblicato" if verified else "ipotesi / dati insufficienti"
+            qualification = "dato pubblicato" if verified else "ipotesi non confermata"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
                    f"{event.get('event')} | {phase} pubblicazione\n"
