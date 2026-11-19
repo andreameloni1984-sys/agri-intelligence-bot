@@ -1,3 +1,4 @@
+from oracle.fred_calendar import parse_fred_releases
 import unittest
 from datetime import datetime, timezone
 from oracle.calendar import (
@@ -6,6 +7,22 @@ from oracle.calendar import (
 
 
 class CalendarTests(unittest.TestCase):
+    def test_fred_calendar_selects_relevant_event_and_converts_time(self):
+        now = datetime(2026, 11, 19, 13, 0, tzinfo=timezone.utc)
+        payload = {"release_dates": [
+            {"release_id": 21, "release_name": "Manufacturing Business Outlook Survey", "date": "2026-11-19"},
+            {"release_id": 900, "release_name": "Unscheduled Unknown Release", "date": "2026-11-19"},
+        ]}
+        events = parse_fred_releases(payload, now=now)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["date_utc"], "2026-11-19T13:30:00+00:00")
+        self.assertEqual(events[0]["source"], "FRED")
+
+    def test_fred_calendar_does_not_invent_unknown_release_times(self):
+        now = datetime(2026, 11, 19, 13, 0, tzinfo=timezone.utc)
+        payload = {"release_dates": [{"release_id": 22, "release_name": "FOMC Minutes", "date": "2026-11-19"}]}
+        self.assertEqual(parse_fred_releases(payload, now=now), [])
+
     def test_bls_parser_extracts_high_impact_release_and_utc_time(self):
         html = """
         <div>Tuesday, November 10, 2026 08:30 AM Consumer Price Index for October 2026</div>
