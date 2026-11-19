@@ -67,9 +67,9 @@ def main():
     else:
         print(f"[CALENDAR] using cached events={len(calendar_events)}")
 
-    # Only calendar events fetched from the official publishers are eligible.
+    # Accept both supported public calendar providers; reject stale legacy events.
     # Discard old cached/manual events from earlier bot versions.
-    official_sources = {"Forex Factory"}
+    official_sources = {"Forex Factory", "ShowMyTrades"}
     calendar_events = [
         event for event in calendar_events
         if event.get("source") in official_sources
