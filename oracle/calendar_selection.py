@@ -67,7 +67,7 @@ def _bias(event, asset, news):
     return ("NON DETERMINABILE", "perunu dadu verificabile pro sa diretzione", False)
 
 def run_calendar_selection(events, now, news):
-    """Select exactly two eligible instruments per event, notify once per phase/change."""
+    """Select at most two eligible instruments per event; notify on market-aligned directional evidence."""
     relevant = []
     for event in events:
         try:
@@ -89,20 +89,20 @@ def run_calendar_selection(events, now, news):
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
         # Check market only for the selected assets and only with directional evidence.
-        symbols = [a.symbol for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2]]
+        symbols = [a.symbol for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT")]
         quotes = fetch_quotes(symbols) if symbols else {}
         print(f"[MARKET VALIDATION] event={event['id']} requested={len(symbols)} received={len(quotes)}")
-        # Never notify Telegram for calendar events without a verified directional release.
-        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2] and a.symbol in quotes and ((quotes[a.symbol].price > quotes[a.symbol].previous_close) if d[0] == "LONG" else (quotes[a.symbol].price < quotes[a.symbol].previous_close))]
+        # Notify only when a directional release or news catalyst aligns with an available market quote.
+        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and a.symbol in quotes and ((quotes[a.symbol].price > quotes[a.symbol].previous_close) if d[0] == "LONG" else (quotes[a.symbol].price < quotes[a.symbol].previous_close))]
         if not actionable:
-            print(f"[SILENT] event={event['id']} no verified directional release")
+            print(f"[SILENT] event={event['id']} no directional news/release aligned with market")
             continue
         signature = "|".join(a.name + ":" + d[0] for a,d in actionable)
         if isinstance(old,dict) and old.get("signature") == signature:
             continue
         rows = []
         for asset, (direction, why, verified) in actionable:
-            qualification = "dadu publicadu e cunfirmadu" if verified else "dadu non cunfirmadu"
+            qualification = "dadu publicadu e cunfirmadu" if verified else "ipòtesi dae sas noas, non cunfirmada"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 ISTELLA ROSSA — CALENDÀRIU USA\n"
                    f"{event.get('event')} | {'INNANTI' if phase == 'PRIMA' else 'A PUSTIS'} de sa publicatzione\n"
