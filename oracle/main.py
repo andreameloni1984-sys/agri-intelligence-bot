@@ -3,7 +3,8 @@ from .config import UNIVERSE
 from .news import collect_news
 from .market import fetch_quotes
 from .analysis import build_signal, score_news, build_pre_news_scenario
-from .calendar import fetch_economic_calendar, relevant_events
+from .calendar import relevant_events
+from .fred_calendar import fetch_fred_calendar
 from .storage import (
     save_result, save_scan_meta, save_quotes, save_calendar_events,
     get_scheduler_state, save_scheduler_state, delete_signal,
@@ -49,7 +50,7 @@ def main():
 
     if calendar_due:
         try:
-            fresh_calendar = fetch_economic_calendar(days=45)
+            fresh_calendar = fetch_fred_calendar(days=7)
             if fresh_calendar:
                 calendar_events = fresh_calendar
                 save_calendar_events(calendar_events)
@@ -67,7 +68,7 @@ def main():
 
     # Only calendar events fetched from the official publishers are eligible.
     # Discard old cached/manual events from earlier bot versions.
-    official_sources = {"BLS", "EIA", "Federal Reserve", "USDA", "Census", "BEA"}
+    official_sources = {"FRED"}
     calendar_events = [
         event for event in calendar_events
         if event.get("source") in official_sources
