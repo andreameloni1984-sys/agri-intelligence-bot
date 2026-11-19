@@ -264,38 +264,12 @@ def main():
             (signal, instrument, status, news_score, nearest)
         )
 
+    # Calendar Telegram alerts are exclusively handled by run_calendar_selection:
+    # one message with two assets, directions, analyses and instructions.
+    # Legacy single-asset news-score alerts would duplicate the same release and
+    # incorrectly label a news-only hypothesis as a confirmed signal.
     for event_key, options in calendar_groups.items():
-        state_key = "selected_event:" + event_key
-        chosen = get_scheduler_state(state_key, [])
-        if not isinstance(chosen, list):
-            chosen = []
-        # Prioritize news-backed confidence. No extra
-        # provider calls and no calendar-only directional assumptions.
-        options.sort(
-            key=lambda row: (
-                row[0].confidence,
-                (row[3] > 0 and row[0].direction == "LONG")
-                or (row[3] < 0 and row[0].direction == "SHORT"),
-            ),
-            reverse=True,
-        )
-        for signal, instrument, status, news_score, nearest in options:
-            # Store direction, not only symbol, so a fresh opposing news
-            # catalyst can produce an inversion alert after publication.
-            choice = instrument.symbol + ":" + signal.direction
-            if choice in chosen or (len(chosen) >= 2 and not any(
-                old.startswith(instrument.symbol + ":") for old in chosen
-            )):
-                print(f"[RANKED_OUT] {instrument.name} event={event_key} selected={chosen}")
-                continue
-            is_new = save_result(signal, instrument.name, instrument.symbol, status)
-            if is_new and send_telegram(signal):
-                chosen = [old for old in chosen if not old.startswith(instrument.symbol + ":")]
-                chosen.append(choice)
-                save_scheduler_state(state_key, chosen)
-                print(f"[SELECTED] {instrument.name} event={event_key} rank={len(chosen)}")
-            elif is_new:
-                delete_signal(signal)
+        print(f"[CALENDAR LEGACY SUPPRESSED] event={event_key} candidates={len(options)}")
 
     # Preserve the existing independent news-led path outside calendar windows.
     for signal, instrument, status in standalone:
