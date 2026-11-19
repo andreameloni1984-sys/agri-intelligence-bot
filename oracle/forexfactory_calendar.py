@@ -32,6 +32,7 @@ def parse_calendar(rows, now=None):
             "date_utc": stamp.isoformat(), "event": title,
             "country": "US", "source": "Forex Factory",
             "importance": str(row.get("impact") or "UNKNOWN").upper(), "url": CALENDAR_PAGE,
+            "actual": str(row.get("actual") or ""),
             "forecast": str(row.get("forecast") or ""),
             "previous": str(row.get("previous") or ""),
         })
