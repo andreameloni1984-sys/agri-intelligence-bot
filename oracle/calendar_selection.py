@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 import re
 from .calendar import EVENT_ASSETS
 from .config import UNIVERSE
-from .analysis import score_news
 from .market import fetch_quotes
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
@@ -65,11 +64,10 @@ def _bias(event, asset, news):
                 surprise *= -1
             return ("LONG" if surprise > 0 else "SHORT",
                     "dato effettivo vs previsione" if released else "previsione vs precedente", released)
-    score, matched = score_news(asset, news)
-    if score:
-        return ("LONG" if score > 0 else "SHORT", "notizie: " + matched[0].title[:90], False)
-    if any(x in title for x in CREDIT_STRESS):
-        return ("LONG" if asset.name == "Gold" else "SHORT", "scenario condizionale: insolvenze in aumento, non confermato dal dato", False)
+    # A separate geopolitical headline must not be attributed to a Fed speech
+    # or economic release merely because it scores for the selected commodity.
+    # Without a numeric release surprise, leave direction to observed price,
+    # clearly labelled as price-only rather than caused by this event.
     return ("NON DETERMINABILE", "nessun dato direzionale verificabile", False)
 
 def run_calendar_selection(events, now, news):
@@ -83,7 +81,7 @@ def run_calendar_selection(events, now, news):
             delta = (stamp - now).total_seconds() / 60
         except (ValueError, TypeError, KeyError):
             continue
-        if -120 <= delta <= 15:
+        if -120 <= delta <= 30:
             relevant.append((abs(delta), delta, event))
     for _, delta, event in sorted(relevant, key=lambda x:x[0]):
         assets = _assets(event)
@@ -119,7 +117,7 @@ def run_calendar_selection(events, now, news):
             assessed.append((direction, why, verified))
         directions = assessed
         # Never send an alert without a substantiated directional hypothesis.
-        if not any(direction in ("LONG", "SHORT") for direction, _, _ in directions):
+        if not all(direction in ("LONG", "SHORT") for direction, _, _ in directions):
             print(f"[CALENDAR SILENT] {event['id']} no directional evidence")
             continue
         # Do not resend every five minutes solely because the quote percentage changed.
