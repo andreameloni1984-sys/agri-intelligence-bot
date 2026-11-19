@@ -204,7 +204,6 @@ def scheduled_weekly_claims(now: datetime | None = None, days: int = 45) -> list
     return events
 
 
-
 def fetch_economic_calendar(days: int = 45) -> list[dict]:
     """Fetch official schedules concurrently; a slow publisher cannot block the others."""
     current_year = datetime.now(timezone.utc).year
@@ -232,6 +231,7 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
         for future in as_completed(futures):
             events.extend(future.result())
 
+    events.extend(scheduled_weekly_claims(days=days))
     unique = {item["id"]: item for item in events}
     return sorted(unique.values(), key=lambda item: item["date_utc"])
 
@@ -239,15 +239,6 @@ def fetch_economic_calendar(days: int = 45) -> list[dict]:
 # Scheduled releases mapped to the instruments they can materially affect.
 # Calendar events provide context only: they never invent a LONG/SHORT outcome.
 EVENT_ASSETS = {
-    "crude oil inventories": {"WTI", "Brent"},
-    "non-farm employment change": {"Gold", "Copper", "WTI", "Brent"},
-    "unemployment claims": {"Gold", "Copper"},
-    "philly fed manufacturing index": {"Gold", "Copper"},
-    "fomc meeting minutes": {"Gold", "Copper", "WTI", "Brent"},
-    "federal funds rate": {"Gold", "Copper", "WTI", "Brent"},
-    "core pce price index": {"Gold", "Copper"},
-    "retail sales": {"Gold", "Copper"},
-    "prelim uom consumer sentiment": {"Gold", "Copper"},
     "eia": {"WTI", "Brent"},
     "petroleum status": {"WTI", "Brent"},
     "wasde": {"Wheat", "Corn", "Soybeans"},
@@ -265,16 +256,6 @@ EVENT_ASSETS = {
     "federal reserve": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "productivity": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
     "employment cost": {"Gold", "Copper", "Platinum", "Palladium", "WTI", "Brent"},
-    "retail sales": {"Gold", "Copper"},
-    "import and export price": {"Gold", "Copper"},
-    "industrial production": {"Gold", "Copper"},
-    "capacity utilization": {"Gold", "Copper"},
-    "inventories and sales": {"Copper", "WTI", "Brent"},
-    "housing starts": {"Copper"},
-    "building permits": {"Copper"},
-    "meeting minutes": {"Gold", "Copper", "WTI", "Brent"},
-    "durable goods": {"Copper", "Gold"},
-    "residential sales": {"Copper"},
 }
 
 
