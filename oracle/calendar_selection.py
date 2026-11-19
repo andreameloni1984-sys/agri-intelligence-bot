@@ -7,6 +7,7 @@ from .analysis import score_news
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
 from .market import fetch_quotes
+from zoneinfo import ZoneInfo
 
 ASSETS = {item.name: item for item in UNIVERSE}
 # Priority resolves events affecting many assets; no importance filter.
@@ -111,7 +112,7 @@ def run_calendar_selection(events, now, news):
             qualification = "dato pubblicato e mercato coerente" if verified else "NON CONFERMATO"
             rows.append(f"{asset.name}: {direction} — {why} ({qualification})")
         message = ("🔴 STELLA ROSSA — CALENDARIO USA\n"
-                   f"{event.get('event')} | {phase} pubblicazione\n"
+                   f"{event.get('event')} | {phase} pubblicazione | {now.astimezone(ZoneInfo('Europe/Rome')).strftime('%d/%m/%Y %H:%M')} Italia\n"
                    + "\n".join(rows) +
                    "\nFonte: Forex Factory — " + event.get("url", "") +
                    "\nSolo ricerca/paper; nessun ordine automatico.")
