@@ -6,6 +6,7 @@ from .config import UNIVERSE
 from .analysis import score_news
 from .storage import get_scheduler_state, save_scheduler_state
 from .notify import send_telegram_status
+from .market import fetch_quotes
 
 ASSETS = {item.name: item for item in UNIVERSE}
 # Priority resolves events affecting many assets; no importance filter.
@@ -44,8 +45,8 @@ def _bias(event, asset, news):
     forecast = _number(event.get("forecast"))
     previous = _number(event.get("previous"))
     released = actual is not None
-    baseline = forecast if released else previous
-    observed = actual if released else forecast
+    baseline = forecast if released else None
+    observed = actual if released else None
     if observed is not None and baseline is not None and observed != baseline:
         surprise = 1 if observed > baseline else -1
         if any(x in title for x in INVERSE):
@@ -76,13 +77,10 @@ def run_calendar_selection(events, now, news):
             delta = (stamp - now).total_seconds() / 60
         except (ValueError, TypeError, KeyError):
             continue
-        if -120 <= delta <= 15:
+        if -120 <= delta <= 30:
             relevant.append((abs(delta), delta, event))
     for _, delta, event in sorted(relevant, key=lambda x:x[0]):
         assets = _assets(event)
-        if len(assets) < 2:
-            # Preserve two candidates even for a narrowly mapped event.
-            assets += [ASSETS[n] for n in PRIORITY if n in ASSETS and ASSETS[n] not in assets][:2-len(assets)]
         phase = "PRIMA" if delta >= 0 else "DOPO"
         key = "calendar_pair:" + event["id"]
         old = get_scheduler_state(key, {})
@@ -90,8 +88,12 @@ def run_calendar_selection(events, now, news):
         if selected:
             assets = [ASSETS[n] for n in selected if n in ASSETS]
         directions = [_bias(event, a, news) for a in assets]
+        # Check market only for the selected assets and only with directional evidence.
+        symbols = [a.symbol for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2]]
+        quotes = fetch_quotes(symbols) if symbols else {}
+        print(f"[MARKET VALIDATION] event={event['id']} requested={len(symbols)} received={len(quotes)}")
         # Never notify Telegram for calendar events without a verified directional release.
-        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2]]
+        actionable = [(a, d) for a, d in zip(assets, directions) if d[0] in ("LONG", "SHORT") and d[2] and a.symbol in quotes and ((quotes[a.symbol].price > quotes[a.symbol].previous_close) if d[0] == "LONG" else (quotes[a.symbol].price < quotes[a.symbol].previous_close))]
         if not actionable:
             print(f"[SILENT] event={event['id']} no verified directional release")
             continue
