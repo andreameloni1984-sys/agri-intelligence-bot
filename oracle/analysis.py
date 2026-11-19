@@ -293,38 +293,48 @@ def build_signal(instrument, quote: Quote | None, news: list[NewsItem], calendar
         return None, f"STALE_QUOTE_{int(age)}m"
     if quote.atr <= 0 or quote.last <= 0 or quote.previous_close <= 0:
         return None, "INVALID_MARKET_DATA"
-    # NEWS-ONLY: technical indicators never determine or veto direction.
-    # Calendar titles trigger observation but are not directional evidence.
-    # Ignore headlines older than 35 minutes or published in the future.
-    fresh_news = [
-        item for item in news
-        if item.published.tzinfo is not None
-        and 0 <= (now - item.published).total_seconds() <= 35 * 60
-    ]
-    news_score, matched = score_news(instrument, fresh_news)
-    if abs(news_score) < 2 or not matched:
-        return None, "NO_VERIFIED_DIRECTIONAL_NEWS"
-    direction = "LONG" if news_score > 0 else "SHORT"
-    setup_type = "NEWS_BASED"
+    technical_score, technical_notes = technical_reading(quote)
+    if technical_score == 0:
+        return None, "TECHNICAL_SETUP_NOT_CONFIRMED"
+    direction = "LONG" if technical_score > 0 else "SHORT"
+    setup_type = "CONFIRMED" if abs(technical_score) >= 3 else "EARLY_SETUP"
+    news_score, matched = score_news(instrument, news)
+    # News is contextual evidence: it can strengthen or weaken confidence, but
+    # it cannot veto a technically valid market setup.
+    news_alignment = news_score * technical_score
+    news_adjustment = 4 if news_alignment > 0 else -4 if news_alignment < 0 else 0
     move_pct = ((quote.last / quote.previous_close) - 1) * 100
-    confidence = min(75, 45 + abs(news_score) * 5)
+    confidence = min(85, max(45, 50 + min(24, abs(technical_score) * 6) +
+                             min(8, abs(move_pct) * 2) + news_adjustment))
     calendar_context = calendar_context or []
+    just_released = any(item.get("phase") == "APPENA PUBBLICATO" for item in calendar_context)
+    upcoming_soon = any(
+        item.get("phase") == "IN ARRIVO" and item.get("minutes_to_event", 99999) <= 60
+        for item in calendar_context
+    )
+    # A fresh release corroborated by news adds context; an imminent release
+    # flags elevated uncertainty. Neither creates a directional trade by itself.
+    calendar_adjustment = 3 if just_released and matched else -3 if upcoming_soon else 0
+    confidence = min(85, max(40, confidence + calendar_adjustment))
+    if setup_type == "EARLY_SETUP":
+        confidence = min(confidence, 59)
     risk = 1.5 * quote.atr
     if direction == "LONG":
         sl, tp1, tp2 = quote.last - risk, quote.last + risk * 1.5, quote.last + risk * 2.5
     else:
         sl, tp1, tp2 = quote.last + risk, quote.last - risk * 1.5, quote.last - risk * 2.5
+    alignment_label = "supports" if news_alignment > 0 else "contradicts" if news_alignment < 0 else "neutral"
+    news_note = f"news score {news_score:+d} ({alignment_label})" if matched else "no matching asset-specific news"
+    trend, swing, interpretation = classify_market_state(quote)
     event_note = "; ".join(
         f"{item['phase']}: {item['event']} ({item['source']})"
         for item in calendar_context[:2]
-    ) or "notizia fuori calendario"
-    evidence = "; ".join(item.title for item in matched[:3])
-    rationale = (
-        f"Direzione basata esclusivamente sulle notizie: score {news_score:+d}. "
-        f"Eventi calendario: {event_note}. Notizie: {evidence}. "
-        f"Prezzo usato solo come riferimento per SL/TP; quote age {int(age)}m. "
-        "Score euristico, non probabilita. Nessuna conferma tecnica richiesta."
-    )
+    ) or "nessun evento rilevante nelle prossime 24h/ultime 2h"
+    rationale = (f"Calendario: {event_note}; adjustment={calendar_adjustment:+d}. "
+                 f"Primary trend {trend}; short-term move {swing} ({interpretation}); "
+                 f"Technical score {technical_score:+d}; {', '.join(technical_notes)}; "
+                 f"15m price change {move_pct:+.3f}%; quote age {int(age)}m; {news_note}. "
+                 "Confidence is a heuristic score, not a probability. SL/TP are ATR-based research levels.")
     return Signal(instrument.name, instrument.symbol, direction, int(confidence), news_score,
                   move_pct, quote.last, sl, tp1, tp2, rationale, [x.url for x in matched[:5]], now,
                   setup_type), ("SIGNAL" if setup_type == "CONFIRMED" else "EARLY_SETUP")
