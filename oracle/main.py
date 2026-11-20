@@ -12,6 +12,7 @@ from .calendar import fetch_economic_calendar
 from .models import Context, Release, event_kind
 from .news import fetch_context
 from .news_scan import discover
+from .news_signal import confirm, headline_direction
 from .notify import format_message, send_telegram
 from .releases import fetch_release
 
@@ -126,16 +127,47 @@ def main(now=None, dry_run=False):
     # Independent news discovery: calendar windows must not suppress headlines.
     headlines = discover(now)
     new_headlines = 0
+    confirmed_signals = 0
     for item in headlines:
-        key = 'news_seen:' + hashlib.sha256(item['url'].encode()).hexdigest()
+        key = "news_seen:" + hashlib.sha256(item["url"].encode()).hexdigest()
         if storage.load(key, False):
             continue
-        storage.save(key, True)
         new_headlines += 1
-        logging.info('[NEWS_CANDIDATE] markets=%s published=%s url=%s title=%s',
-                     ','.join(item['markets']), item['published'], item['url'], item['title'])
-    logging.info('[NEWS_DONE] candidates=%d new=%d signals=0 reason=price_confirmation_not_implemented',
-                 len(headlines), new_headlines)
+        logging.info("[NEWS_CANDIDATE] markets=%s published=%s url=%s title=%s",
+                     ",".join(item["markets"]), item["published"], item["url"], item["title"])
+        # Do not permanently mark a headline seen until its possible signals are checked.
+        # Only one instrument per headline, avoiding correlated WTI/Brent spam.
+        for asset in item["markets"]:
+            direction = headline_direction(item["title"], asset)
+            if not direction:
+                continue
+            market, reason = confirm(asset, direction, now)
+            logging.info("[NEWS_CHECK] asset=%s bias=%s result=%s", asset, direction, reason)
+            if market is None:
+                continue
+            changes = market["changes"]
+            message = ("🔴 STELLA ROSSA — NOTIZIE + PREZZO\\n"
+                       f"{asset.upper()} — {direction} (momentum confermato, non ordine)\\n"
+                       f"Prezzo indicativo: {market['price']:.4f} USD\\n"
+                       f"5m / 15m / 60m: {changes[0]:+.2f}% / {changes[1]:+.2f}% / {changes[2]:+.2f}%\\n"
+                       f"Quotazione UTC: {market['time']}\\n"
+                       f"Notizia: {item['title']}\\nFonte: {item['url']}\\n"
+                       "PAPER ONLY — verificare spread, rischio e ingresso manualmente")
+            signal_key = "news_signal:" + hashlib.sha256((item["url"] + asset + direction).encode()).hexdigest()
+            if storage.load(signal_key, False):
+                continue
+            if dry_run:
+                logging.info("[NEWS_SIGNAL_DRY_RUN] %s", message)
+            else:
+                delivery = send_telegram(message)
+                logging.info("[NEWS_SIGNAL] asset=%s direction=%s telegram=%s", asset, direction, delivery)
+                if delivery == "delivered":
+                    storage.save(signal_key, True)
+                    confirmed_signals += 1
+            break
+        storage.save(key, True)
+    logging.info("[NEWS_DONE] candidates=%d new=%d signals=%d",
+                 len(headlines), new_headlines, confirmed_signals)
     eligible = 0
     active = 0
     for event in events:
