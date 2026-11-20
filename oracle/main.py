@@ -11,6 +11,7 @@ from .analysis import UNKNOWN, interpret
 from .calendar import fetch_economic_calendar
 from .models import Context, Release, event_kind
 from .news import fetch_context
+from .news_scan import discover
 from .notify import format_message, send_telegram
 from .releases import fetch_release
 
@@ -122,6 +123,19 @@ def _process(event, stamp, now, dry_run):
 def main(now=None, dry_run=False):
     now = now or datetime.now(timezone.utc)
     events, next_check = _calendar(now)
+    # Independent news discovery: calendar windows must not suppress headlines.
+    headlines = discover(now)
+    new_headlines = 0
+    for item in headlines:
+        key = 'news_seen:' + hashlib.sha256(item['url'].encode()).hexdigest()
+        if storage.load(key, False):
+            continue
+        storage.save(key, True)
+        new_headlines += 1
+        logging.info('[NEWS_CANDIDATE] markets=%s published=%s url=%s title=%s',
+                     ','.join(item['markets']), item['published'], item['url'], item['title'])
+    logging.info('[NEWS_DONE] candidates=%d new=%d signals=0 reason=price_confirmation_not_implemented',
+                 len(headlines), new_headlines)
     eligible = 0
     active = 0
     for event in events:
