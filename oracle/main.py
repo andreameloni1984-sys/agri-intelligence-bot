@@ -144,6 +144,8 @@ def main(now=None, dry_run=False):
             if market is None:
                 continue
             changes = market["changes"]
+            def pct(value):
+                return f"{value:+.2f}%" if value is not None else "n/d"
             message = ("🔴 STELLA ROSSA — NOTIZIE + PREZZO\\n"
                        f"{asset.upper()} — {direction} (momentum confermato, non ordine)\\n"
                        f"Prezzo future indicativo: {market['price']:.4f} (unità del provider)\\n"
