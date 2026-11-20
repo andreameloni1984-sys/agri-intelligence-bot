@@ -11,7 +11,7 @@ SYMBOLS = {
     "Corn": "ZC=F", "Soybeans": "ZS=F",
 }
 UP = ("rises", "rallies", "gains", "surges", "climbs", "jumps", "rebounds")
-DOWN = ("falls", "drops", "slides", "slumps", "declines", "sinks", "plunges")
+DOWN = ("falls", "drops", "slides", "slide", "slumps", "declines", "sinks", "plunges", "weakens", "tumbles")
 
 
 def headline_direction(title, asset):
@@ -24,9 +24,12 @@ def headline_direction(title, asset):
         "Wheat": ("wheat",), "Corn": ("corn",), "Soybeans": ("soybeans", "soybean"),
     }[asset]
     import re
+    # The instrument may precede or follow the verb; accept common inflections.
     for subject in subjects:
         for verb in UP + DOWN:
-            if re.search(r"\\b" + re.escape(subject) + r"\\b.{0,28}\\b" + verb + r"\\b", lower):
+            pattern = r"\b" + re.escape(subject) + r"\b.{0,65}\b" + re.escape(verb) + r"\b"
+            reverse = r"\b" + re.escape(verb) + r"\b.{0,65}\b" + re.escape(subject) + r"\b"
+            if re.search(pattern, lower) or re.search(reverse, lower):
                 return "LONG" if verb in UP else "SHORT"
     return None
 
@@ -45,21 +48,19 @@ def confirm(asset, direction, now):
         times = result["timestamp"]
         closes = result["indicators"]["quote"][0]["close"]
         bars = [(int(t), float(p)) for t, p in zip(times, closes) if p is not None and p > 0]
-        if len(bars) < 14:
+        if len(bars) < 4:
             return None, "insufficient_bars"
         last_time, last_price = bars[-1]
         if abs(now.timestamp() - last_time) > 900 or last_time > now.timestamp() + 120:
             return None, "stale_price"
-        # Compare close to approximately 5, 15 and 60 minutes earlier.
+        # Five-minute direction decides; 15/60-minute trends are context only.
         changes = []
         for seconds in (300, 900, 3600):
             prior = [price for stamp, price in bars if stamp <= last_time - seconds]
-            if not prior:
-                return None, "insufficient_history"
-            changes.append((last_price / prior[-1] - 1) * 100)
-        if not all(value > 0 for value in changes) and direction == "LONG":
+            changes.append((last_price / prior[-1] - 1) * 100 if prior else None)
+        if (changes[0] is None or changes[0] <= 0) and direction == "LONG":
             return None, "momentum_not_aligned"
-        if not all(value < 0 for value in changes) and direction == "SHORT":
+        if (changes[0] is None or changes[0] >= 0) and direction == "SHORT":
             return None, "momentum_not_aligned"
         return {"symbol": symbol, "price": last_price, "time": datetime.fromtimestamp(last_time, timezone.utc).isoformat(),
                 "changes": changes}, "confirmed"
