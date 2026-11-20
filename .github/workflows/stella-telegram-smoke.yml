@@ -1,0 +1,42 @@
+name: Stella Rossa - test Telegram una tantum
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stella-telegram-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Test calendar routing and send real Telegram confirmation
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timezone, timedelta
+          from oracle.models import event_kind
+          from oracle.main import PRE_WINDOW
+          from oracle.notify import send_telegram
+          assert event_kind("Weekly Petroleum Status Report") == "eia"
+          assert event_kind("Consumer Price Index") == "cpi"
+          assert PRE_WINDOW == timedelta(minutes=30)
+          print("[TEST] calendar_event_mapping=ok pre_window=30min")
+          msg = ("🔴 STELLA ROSSA — TEST TECNICO\n"
+                 "✅ Calendario USA: riconoscimento EIA/CPI verificato\n"
+                 "✅ Finestra preliminare: 30 minuti verificata\n"
+                 "📨 Verifica consegna Telegram in corso\n"
+                 "⚠️ Non è un segnale di trading — PAPER ONLY")
+          result = send_telegram(msg)
+          print("[TEST] telegram_delivery=" + result)
+          assert result == "delivered", "Telegram non consegnato: " + result
+          PY
