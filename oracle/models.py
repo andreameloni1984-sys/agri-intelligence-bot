@@ -1,41 +1,43 @@
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+
+
+EVENTS = {
+    "cpi": ("Consumer Price Index", "Inflazione CPI"),
+    "ppi": ("Producer Price Index", "Prezzi alla produzione PPI"),
+    "pce": ("Personal Income and Outlays", "Inflazione PCE"),
+    "nfp": ("Employment Situation", "Occupazione USA"),
+    "claims": ("Unemployment Insurance Weekly Claims", "Richieste di disoccupazione"),
+    "eia": ("Weekly Petroleum Status Report", "Scorte petrolifere EIA"),
+    "fomc": ("FOMC policy decision", "Decisione FOMC"),
+    "wasde": ("USDA WASDE", "Rapporto USDA WASDE"),
+}
+
+
+def event_kind(title: str) -> str | None:
+    return next((kind for kind, (label, _) in EVENTS.items() if title.startswith(label)), None)
+
 
 @dataclass
-class NewsItem:
-    title: str
+class Release:
+    actual: dict[str, float]
     url: str
-    published: datetime
-    source: str
-    summary: str = ""
+    previous: dict[str, float] = field(default_factory=dict)
+    revised: dict[str, float] = field(default_factory=dict)
+    periods: dict[str, str] = field(default_factory=dict)
+    notes: str = ""
+
 
 @dataclass
-class Quote:
-    symbol: str
-    last: float
-    previous_close: float
-    atr: float
-    timestamp: datetime
-    source: str = "Yahoo Finance"
-    ema50: float | None = None
-    ema200: float | None = None
-    rsi14: float | None = None
-    structure_high: float | None = None
-    structure_low: float | None = None
+class Context:
+    consensus: dict[str, float] = field(default_factory=dict)
+    previous: dict[str, float] = field(default_factory=dict)
+    scenario: dict[str, float] = field(default_factory=dict)
+    periods: dict[str, str] = field(default_factory=dict)
+    urls: list[str] = field(default_factory=list)
+    headlines: list[str] = field(default_factory=list)
+
 
 @dataclass
-class Signal:
-    instrument: str
-    symbol: str
-    direction: str
-    confidence: int
-    news_score: int
-    price_change_pct: float
-    reference_price: float
-    stop_loss: float | None
-    target_1: float | None
-    target_2: float | None
-    rationale: str
-    news_urls: list[str]
-    created_at: datetime
-    setup_type: str = "CONFIRMED"
+class Analysis:
+    directions: dict[str, str]
+    reason: str

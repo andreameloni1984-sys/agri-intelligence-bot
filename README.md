@@ -1,94 +1,39 @@
-# ORACLE — market intelligence bot
+# Stella Rossa
 
-Independent PAPER/research-only Python project. It does not reuse GAGARIN or SPUTNIK code, connect to Trading 212, or place orders.
+Stella Rossa segue le pubblicazioni economiche USA e formula ipotesi direzionali sulle materie prime. Il bot opera in **PAPER ONLY** e non ha integrazioni con intermediari finanziari.
 
-## What ORACLE does
+## Come funziona
 
-1. Scans a fixed nine-market futures research universe: Gold, Copper, Platinum, Palladium, WTI, Brent, Wheat, Corn and Soybeans. Silver is excluded.
-2. Collects timestamped public RSS news from the White House, Federal Reserve, BLS, EIA and USDA NASS, plus optional GDELT news.
-3. Downloads free Yahoo Finance continuous-futures candles in a batch and rejects missing, invalid or stale quotes.
-4. Reads official US schedules from BLS (major inflation/employment releases), EIA (weekly petroleum report), Federal Reserve (FOMC meetings) and USDA (WASDE).
-5. Builds the primary direction from technical confluence: EMA50/EMA200 trend, price versus EMA50, RSI14, 20-candle breakout/breakdown and latest-candle momentum. A minimum score is required; incomplete indicator data produces no signal.
-6. Uses asset-specific news as secondary context: matching news can support the technical setup, while sufficiently strong opposing news blocks it. News is not a prerequisite for a technical signal.
-7. Calculates illustrative ATR-based stop-loss and two targets. The confidence score is a rule-based heuristic, not a statistically validated probability.
-8. Records scan results, latest quotes and upcoming calendar events in SQLite.
-9. Sends Telegram alerts for newly detected, deduplicated directional hypotheses.
+- Il calendario raccoglie CPI, PPI e occupazione (BLS), scorte petrolifere (EIA), decisioni FOMC (Federal Reserve), WASDE (USDA), PCE (BEA) e richieste di disoccupazione (DOL). Per il DOL usa la cadenza ufficiale del giovedì e omette le settimane a rischio di slittamento festivo, in attesa di un calendario verificabile. I calendari usano UTC internamente e Telegram mostra l'ora di Roma.
+- Da 30 minuti prima, il bot cerca notizie Reuters pertinenti e aspettative attribuite. Invia una previsione preliminare quando uno scenario con fonte e orario differisce materialmente dal consenso. Il consenso da solo non costituisce uno scenario direzionale.
+- All'orario previsto il worker cerca il dato ufficiale e riprova se il comunicato non è disponibile. La lettura confronta dato effettivo, consenso e revisioni disponibili. Per WASDE può usare la variazione della proiezione USDA dello stesso anno commerciale, esplicitando il confronto.
+- La selezione tra Gold, Copper, Platinum, WTI, Brent, Wheat, Corn e Soybeans segue la trasmissione economica e, per WASDE, la dimensione degli scostamenti. Le evidenze contraddittorie o insufficienti producono una direzione non determinabile.
+- Il worker ricontrolla il comunicato fino a due ore dopo l'evento. SQLite conserva dati, fonti e ultimo esito. Telegram avvisa in caso di variazione della conclusione. Un timeout dopo l'invio ha esito incerto, quindi il worker evita di ripetere quell'avviso.
 
-## Markets and data symbols
-
-| Market | Yahoo Finance symbol |
-|---|---|
-| Gold | GC=F |
-| Copper | HG=F |
-| Platinum | PL=F |
-| Palladium | PA=F |
-| WTI | CL=F |
-| Brent | BZ=F |
-| Wheat | ZW=F |
-| Corn | ZC=F |
-| Soybeans | ZS=F |
-
-These are Yahoo Finance continuous futures symbols, not broker-specific CFDs or exchange-expiry contracts. Yahoo data is unofficial and may be delayed, unavailable or mapped differently. No broker feed is connected.
-
-## Telegram alerts
-
-Add these GitHub repository secrets under **Settings → Secrets and variables → Actions**:
-
-- `TELEGRAM_BOT_TOKEN`: token from BotFather.
-- `TELEGRAM_CHAT_ID`: the private chat or group that should receive alerts.
-
-Never paste tokens into source code or chat. At the start of every automatic scan, ORACLE checks the Telegram credentials. If Telegram is not configured or temporarily unavailable, the market scan continues; alert delivery is unavailable until the credentials and destination work. A separate manual workflow option sends an explicit test message.
-
-**Alerts are automatic:** GitHub Actions starts the ORACLE scan every five minutes. When a new directional hypothesis passes the checks, ORACLE sends a Telegram message directly using `sendMessage`; you do not need to write `/start` or any command. The workflow restores a small SQLite journal between runs to avoid repeating the same catalyst alert. If Telegram rejects an alert, the unsent signal is not marked as delivered and can be retried on the next scan. GitHub scheduled jobs can start a few minutes late at busy times; this is automatic scanning, not a guaranteed real-time feed.
-
-## Economic calendar coverage
-
-- **BLS:** selected CPI, PPI, Employment Situation, JOLTS, Productivity, Employment Cost Index and import/export price releases.
-- **EIA:** Weekly Petroleum Status Report; the parser reads the official schedule and attempts to apply published holiday adjustments.
-- **Federal Reserve:** scheduled FOMC meeting decision day, using the official meeting calendar. The second meeting day is represented at the usual 2:00 p.m. Eastern statement time.
-- **USDA:** monthly WASDE report release dates from the official World Agricultural Outlook Board page.
-
-This is a release schedule, not a full global calendar. It does not currently provide market consensus, forecast, previous or actual values; it does not cover every NASS/ERS/FAS release, central bank, or economic indicator. Failed or unparseable sources are logged and omitted rather than fabricated.
-
-Official sources:
-- BLS: https://www.bls.gov/schedule/
-- EIA: https://www.eia.gov/petroleum/supply/weekly/schedule.php
-- Federal Reserve: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
-- USDA WASDE: https://usda.azureedge.us/about-usda/general-information/staff-offices/office-chief-economist/commodity-markets/wasde-report
-
-## Automation and journal
-
-GitHub Actions runs the research scan every five minutes and can also be started manually from the Actions tab. The scan stores SQLite results and uploads a run artifact for 30 days. GitHub-hosted runners are temporary and the previous artifact is not automatically restored into the next run: The journal is also used to suppress duplicate Telegram alerts across scheduled runs. GitHub Actions cache is best-effort persistence; it is not a transactional database or a guaranteed permanent archive.
-
-The repository also includes Python test/quality checks, CodeQL, dependency review, pip-audit and Dependabot workflows. Repository-level security settings (such as secret scanning and Dependabot alerts) must be checked separately in GitHub Settings.
-
-## Install and run locally
+## Configurazione
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-python -m oracle.main
+python -m unittest discover -s tests -v
+python -m oracle.main --dry-run
 ```
 
-## Technical engine
+Usa un solo processo `python -m oracle.worker` con `DB_PATH` su disco persistente. Il Blueprint esistente configura il worker su Render. Imposta `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` come segreti del worker. Il workflow GitHub Actions è un'anteprima manuale senza invio Telegram.
 
-- Candles: 15-minute Yahoo Finance continuous-futures data.
-- Indicators: EMA50, EMA200, RSI14, ATR14, previous 20-candle high/low and latest-candle direction.
-- The EMA200 calculation is accepted only after at least 220 candles are available.
-- Direction requires a technical score of at least 3 and a clear lead for one side; missing or stale data blocks the signal.
-- SL: 1.5 × ATR from reference price; TP1: 1.5R; TP2: 2.5R. These are research levels and are not execution instructions.
+Reuters viene consultata via ricerca RSS per evento. I sondaggi numerici sul greggio riconosciuti nel titolo possono fornire il consenso. Per una copertura più ampia configura facoltativamente `TRADING_ECONOMICS_API_KEY`, che richiede un accesso API valido, oppure un feed attendibile con `EVENT_CONTEXT_URL`. Il provider Trading Economics viene interrogato prima della pubblicazione e si accettano solo l'orario, l'evento USA e le unità corrispondenti. Il calendario e il dato effettivo restano quelli delle agenzie ufficiali.
 
-## Limitations and safety
+Il feed opzionale riceve `GET ?event_id=<id>` e restituisce un oggetto JSON con `event_id`, `source_url` (HTTPS), `as_of` (ISO 8601 con offset e precedente alla pubblicazione) e mappe numeriche facoltative `consensus`, `previous` e `scenario`. Lo scenario rappresenta una stima indipendente e attribuita nella stessa unità del consenso. Per WASDE fornisci anche `periods` per identificare l'anno commerciale, per esempio `{"Corn": "2026/27"}`.
 
-- PAPER/research only: no broker integration, order placement, position sizing or execution.
-- News scoring is a transparent phrase-based heuristic, not a validated predictive model.
-- Stop and target levels are illustrative ATR calculations, not guaranteed outcomes.
-- Yahoo Finance is not an official exchange feed and can be delayed or unavailable.
-- A successful Telegram API response confirms API acceptance, not that a person read the message.
-- No paid data services are required.
+| Evento | Metriche del feed |
+|---|---|
+| CPI, PPI, PCE | `headline_mom_pct`, `core_mom_pct` in percentuale mensile. Per PPI, la misura core esclude alimentari, energia e servizi commerciali. |
+| Occupazione | `payrolls` in posti di lavoro e `unemployment_pct` in percentuale. |
+| Richieste di disoccupazione | `claims` in richieste. |
+| EIA | `crude_mb`, `gasoline_mb`, `distillates_mb` come variazioni in milioni di barili. |
+| FOMC | `upper_pct` come limite superiore dell'intervallo, in percentuale. |
+| WASDE | `Wheat`, `Corn`, `Soybeans` come scorte finali USA in milioni di bushel. |
 
-## Tests
-
-`python -m unittest discover -s tests -v`
+I test con comunicati storici verificano lettura e coerenza della logica economica. Non misurano le prestazioni previsionali.

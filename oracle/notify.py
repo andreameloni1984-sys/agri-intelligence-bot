@@ -1,46 +1,56 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import requests
+
 from .config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-from .models import Signal
+from .models import EVENTS, event_kind
 
-def send_telegram(signal: Signal):
+ROME = ZoneInfo("Europe/Rome")
+LABELS = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "NON DETERMINABILE": "⚪ NON DETERMINABILE"}
+
+
+def format_message(event, analysis, source, preliminary=False, update=False):
+    stamp = datetime.fromisoformat(event["date_utc"]).astimezone(ROME)
+    phase = "PREVISIONE PRELIMINARE" if preliminary else "ANALISI DEL DATO PUBBLICATO"
+    if update:
+        phase += " — AGGIORNAMENTO"
+    title = EVENTS[event_kind(event["event"])][1]
+    directions = [f"{rank}. {asset.upper()} — {LABELS[direction]}"
+                  for rank, (asset, direction) in enumerate(analysis.directions.items(), 1)]
+    return "\n".join([
+        "🔴 STELLA ROSSA — CALENDARIO USA",
+        phase,
+        "",
+        f"📰 Evento: {title}",
+        *(directions or ["⚪ Direzione non determinabile"]),
+        "",
+        f"📊 Motivo: {analysis.reason}",
+        f"🕒 Orario: {stamp:%d/%m/%Y %H:%M %Z}",
+        f"🔗 Fonte: {source}",
+        "PAPER ONLY",
+    ])
+
+
+def send_telegram(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM] credentials missing; alert not sent")
-        return False
-    label = "EARLY SETUP — da confermare" if signal.setup_type == "EARLY_SETUP" else "SEGNALE CONFERMATO"
-    message = (f"🔴 STELLA ROSSA — {label} — {signal.direction}\n"
-        f"Strumento: {signal.instrument} ({signal.symbol})\n"
-        f"Confidenza euristica: {signal.confidence}/100\n"
-        f"Prezzo riferimento: {signal.reference_price:.4f}\n"
-        f"Stop: {signal.stop_loss:.4f}\nTP1: {signal.target_1:.4f}\nTP2: {signal.target_2:.4f}\n"
-        f"{signal.rationale}\n" + "\n".join(signal.news_urls[:3]) +
-        "\nRicerca/paper only — nessun ordine eseguito.")
-    try:
-        response = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                                 json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=15)
-        response.raise_for_status()
-        accepted = bool(response.json().get("ok"))
-        print(f"[TELEGRAM] API accepted={accepted}")
-        return accepted
-    except Exception as exc:
-        print(f"[TELEGRAM] send error: {type(exc).__name__}")
-        return False
-
-
-def send_telegram_status(message: str) -> bool:
-    """Send a scan heartbeat independently from trading-signal notifications."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM] credentials missing; scan status not sent")
-        return False
+        return "unconfigured"
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": message},
-            timeout=15,
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": message,
+                  "link_preview_options": {"is_disabled": True}},
+            timeout=10,
         )
-        response.raise_for_status()
-        accepted = bool(response.json().get("ok"))
-        print(f"[TELEGRAM] scan status accepted={accepted}")
-        return accepted
-    except Exception as exc:
-        print(f"[TELEGRAM] scan status error: {type(exc).__name__}")
-        return False
+        if response.status_code == 429:
+            return "retry"
+        if 400 <= response.status_code < 500:
+            return "retry"
+        if response.status_code >= 500:
+            return "unknown"
+        return "delivered" if response.json().get("ok") else "retry"
+    except requests.ConnectTimeout:
+        return "retry"
+    except (requests.RequestException, ValueError):
+        # A read timeout can occur after the API accepted the message.
+        return "unknown"

@@ -1,177 +1,146 @@
-from datetime import datetime, timezone, timedelta
-from .config import UNIVERSE
-from .news import collect_news
-from .market import fetch_quotes
-from .analysis import build_signal, score_news
-from .calendar import fetch_economic_calendar, relevant_events
-from .storage import (
-    save_result, save_scan_meta, save_quotes, save_calendar_events,
-    get_scheduler_state, save_scheduler_state, delete_signal,
-)
-from .notify import send_telegram
+"""Calendar-first scheduler. Each invocation returns time until the next check."""
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import logging
 
-def main():
-    """Light calendar scheduler; fetch markets only from 30m before relevant releases."""
-    started = datetime.now(timezone.utc)
-    errors = []
-    print(f"STELLA ROSSA calendar check started={started.isoformat()}")
+from . import storage
+from .analysis import UNKNOWN, interpret
+from .calendar import fetch_economic_calendar
+from .models import Context, Release, event_kind
+from .news import fetch_context
+from .notify import format_message, send_telegram
+from .releases import fetch_release
 
-    # Official schedules change infrequently: refresh every six hours, not every
-    # five-minute wake-up. Retain the last successful schedule on source failure.
-    calendar_events = get_scheduler_state("cached_calendar_official_v12", [])
-    last_calendar_scan = get_scheduler_state("last_calendar_scan_official_v12")
-    calendar_due = True
-    if last_calendar_scan:
-        try:
-            previous = datetime.fromisoformat(last_calendar_scan)
-            if previous.tzinfo is None:
-                previous = previous.replace(tzinfo=timezone.utc)
-            calendar_due = started - previous >= timedelta(hours=6)
-        except (TypeError, ValueError):
-            calendar_due = True
+PRE_WINDOW = timedelta(minutes=30)
+POST_WINDOW = timedelta(hours=2)
+LATER_RECHECK = timedelta(minutes=10)
 
-    if calendar_due:
-        try:
-            fresh_calendar = fetch_economic_calendar(days=45)
-            if fresh_calendar:
-                calendar_events = fresh_calendar
-                save_calendar_events(calendar_events)
-                save_scheduler_state("cached_calendar_official_v12", calendar_events)
-            # If every official source returns no events, retry in one hour rather than six.
-            # Keep the last successful calendar and do not trigger market scans.
-            retry_reference = started - timedelta(hours=5) if not fresh_calendar else started
-            save_scheduler_state("last_calendar_scan_official_v12", retry_reference.isoformat())
-            print(f"[CALENDAR] refreshed events={len(fresh_calendar)} cached={len(calendar_events)}")
-        except Exception as exc:
-            errors.append(f"calendar:{type(exc).__name__}")
-            print(f"[CALENDAR] refresh failed: {type(exc).__name__}; cached events={len(calendar_events)}")
-    else:
-        print(f"[CALENDAR] using cached events={len(calendar_events)}")
 
-    # Reject events persisted by the removed Forex Factory/ShowMyTrades pipeline.
-    # A restored GitHub Actions SQLite cache can outlive a source-code rollback.
-    trusted_sources = {"BLS", "EIA", "Federal Reserve", "USDA", "DOL"}
-    legacy_count = len(calendar_events)
-    calendar_events = [
-        event for event in calendar_events
-        if event.get("source") in trusted_sources
-    ]
-    if legacy_count != len(calendar_events):
-        print(f"[CALENDAR CACHE CLEANUP] removed_legacy={legacy_count-len(calendar_events)}")
+def _calendar(now):
+    cache = storage.load("official_calendar", {})
+    events = cache.get("events", [])
+    refresh = datetime.fromisoformat(cache["refresh"]) if "refresh" in cache else now
+    if now < refresh:
+        return events, refresh
+    fresh = fetch_economic_calendar(now=now)
+    # Preserve sources that are temporarily unavailable without keeping replaced
+    # schedules from sources that did return events.
+    sources = {item["source"] for item in fresh}
+    events = fresh + [item for item in events if item["source"] not in sources
+                      and datetime.fromisoformat(item["date_utc"]) >= now - POST_WINDOW]
+    refresh = now + timedelta(hours=6 if len(sources) >= 6 else 1)
+    storage.save("official_calendar", {"events": events, "refresh": refresh.isoformat()})
+    logging.info("Calendario: %d eventi, %d fonti aggiornate", len(events), len(sources))
+    return events, refresh
 
-    # GitHub Actions has a static cron, so it wakes every five minutes only to
-    # evaluate the cached official schedule. Market/news downloads begin only
-    # 30 minutes before a mapped release, and continue for 120 minutes after it.
-    # Outside those windows this exits before news, quotes, technical analysis or alerts.
-    active = {}
-    for instrument in UNIVERSE:
-        context = relevant_events(instrument, calendar_events, now=started)
-        context = [
-            item for item in context
-            if item["phase"] == "APPENA PUBBLICATO"
-            or (item["phase"] == "IN ARRIVO" and item["minutes_to_event"] <= 30)
-        ]
-        if context:
-            active[instrument] = context
 
-    # Outside calendar windows, check free news at most once per 30 minutes.
-    # Only fresh, directionally mapped headlines activate a commodity quote scan.
-    news = None
-    if not active:
-        last_news_scan = get_scheduler_state("last_news_scan")
-        news_due = True
-        if last_news_scan:
-            try:
-                previous_news = datetime.fromisoformat(last_news_scan)
-                if previous_news.tzinfo is None:
-                    previous_news = previous_news.replace(tzinfo=timezone.utc)
-                news_due = started - previous_news >= timedelta(minutes=30)
-            except (TypeError, ValueError):
-                pass
-        if news_due:
-            try:
-                news = collect_news()
-                save_scheduler_state("last_news_scan", started.isoformat())
-                fresh = [item for item in news if timedelta(0) <= started - item.published <= timedelta(minutes=35)]
-                for instrument in UNIVERSE:
-                    score, matched = score_news(instrument, fresh)
-                    if abs(score) >= 2 and matched:
-                        active[instrument] = []
-                        print(f"[NEWS TRIGGER] {instrument.name} score={score:+d} headlines={len(matched)}")
-                print(f"[NEWS] off-calendar items={len(news)} fresh={len(fresh)} active={len(active)}")
-            except Exception as exc:
-                errors.append(f"news:{type(exc).__name__}")
-                print(f"[NEWS] off-calendar check failed: {type(exc).__name__}")
-        if not active:
-            print("[IDLE] no calendar window or fresh directional news; market scan skipped")
-            save_scan_meta(started, 0, 0)
-            return
-
-    print("[EVENT WINDOW] " + ", ".join(
-        f"{instrument.name}({len(context)})" for instrument, context in active.items()
-    ))
-
-    # Headlines are collected only when a mapped event activates the relevant markets.
-    try:
-        if news is None:
-            news = collect_news()
-            save_scheduler_state("last_news_scan", started.isoformat())
-        print(f"[NEWS] refreshed items={len(news)}")
-    except Exception as exc:
-        errors.append(f"news:{type(exc).__name__}")
-        news = []
-        print(f"[NEWS] refresh failed: {type(exc).__name__}; continuing with calendar and prices")
-
-    symbols = [instrument.symbol for instrument in active]
-    try:
-        quotes = fetch_quotes(symbols)
-        save_quotes(quotes)
-    except Exception as exc:
-        errors.append(f"quotes:{type(exc).__name__}")
-        quotes = {}
-        print(f"[MARKET] active-symbol quote fetch failed: {type(exc).__name__}")
-
-    directional = 0
-    checked = 0
-    for instrument, event_context in active.items():
-        quote = quotes.get(instrument.symbol)
-        if quote is None:
-            print(f"[MARKET] {instrument.name}: quote unavailable/stale; no signal")
-            continue
-        checked += 1
-        try:
-            news_score, matched = score_news(instrument, news)
-            signal, status = build_signal(
-                instrument, quote, news, calendar_context=event_context
-            )
-            if signal:
-                signal.news_score = news_score
-                signal.news_urls = [item.url for item in matched[:5]]
-                is_new = save_result(signal, instrument.name, instrument.symbol, status)
-                directional += 1
-                print(
-                    f"[SIGNAL] {signal.instrument} {signal.direction} status={status} "
-                    f"news_score={news_score:+d} calendar_events={len(event_context)} "
-                    f"confidence={signal.confidence} new={is_new}"
-                )
-                if is_new and not send_telegram(signal):
-                    delete_signal(signal)
-            else:
-                print(
-                    f"[WAIT] {instrument.name}: {status} news_score={news_score:+d} "
-                    f"calendar_events={len(event_context)}"
-                )
-        except Exception as exc:
-            errors.append(f"{instrument.symbol}:{type(exc).__name__}")
-            print(f"[ANALYSIS] {instrument.name} failed: {type(exc).__name__}")
-
-    save_scan_meta(started, len(news), checked)
-    print(
-        f"[DONE] event_driven=true active_markets={len(active)} "
-        f"quotes={len(quotes)} analysed={checked} directional={directional} "
-        f"errors={len(errors)} telegram_alerts_only=enabled"
+def _merge_context(saved, fresh):
+    return Context(
+        consensus={**saved.consensus, **fresh.consensus},
+        previous={**saved.previous, **fresh.previous},
+        scenario={**saved.scenario, **fresh.scenario},
+        periods={**saved.periods, **fresh.periods},
+        urls=list(dict.fromkeys(fresh.urls + saved.urls))[:8],
+        headlines=fresh.headlines,
     )
 
 
+def _process(event, stamp, now, dry_run):
+    event_id = event["id"]
+    kind = event_kind(event["event"])
+    preliminary = now < stamp
+    phase = "preliminary" if preliminary else "published"
+    state_key = f"check:{event_id}:{phase}"
+    check = storage.load(state_key, {})
+    last, delivery = storage.last_result(event_id, phase)
+    due = datetime.fromisoformat(check["next"]) if "next" in check else now
+    if now < due:
+        return due
+
+    context_key = f"context:{event_id}"
+    cached = Context(**storage.load(context_key, {}))
+    last_context_check = datetime.fromisoformat(check["context_checked_at"]) if "context_checked_at" in check else None
+    context_due = (preliminary or last_context_check is None
+                   or now - last_context_check >= timedelta(minutes=20))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        release_future = pool.submit(fetch_release, event, preliminary)
+        context_future = None
+        if context_due:
+            context_future = pool.submit(fetch_context, event, now)
+        release = release_future.result()
+        context = _merge_context(cached, context_future.result()) if context_future else cached
+    if context_future:
+        storage.save(context_key, asdict(context))
+
+    if preliminary:
+        next_check = min(stamp, now + timedelta(minutes=10))
+    elif release is None or not release.actual:
+        next_check = now + (timedelta(seconds=30) if now - stamp < timedelta(minutes=10)
+                            else timedelta(minutes=2))
+    else:
+        next_check = now + LATER_RECHECK
+    check["next"] = next_check.isoformat()
+    if context_future:
+        check["context_checked_at"] = now.isoformat()
+    storage.save(state_key, check)
+    if not preliminary and (release is None or not release.actual):
+        storage.save(f"availability:{event_id}", {"state": "waiting_for_release", "checked_at": now.isoformat()})
+        logging.info("Comunicato %s non ancora disponibile", event_id)
+        return next_check
+
+    if not preliminary:
+        storage.save(f"availability:{event_id}", {"state": "published", "checked_at": now.isoformat()})
+    release = release or Release({}, event["url"])
+    analysis = interpret(kind, release, context, preliminary)
+    directional = any(direction != UNKNOWN for direction in analysis.directions.values())
+    payload = {"release": asdict(release), "context": asdict(context), "analysis": asdict(analysis)}
+    material = [sorted(analysis.directions.items()), analysis.reason]
+    fingerprint = hashlib.sha256(json.dumps(material, ensure_ascii=False).encode()).hexdigest()
+    storage.save(f"outcome:{event_id}:{phase}", payload)
+    if preliminary and (not directional or (last and delivery != "retry")):
+        return next_check
+    # Publish when the economic conclusion changes. A numeric correction with
+    # the same conclusion is retained in the journal without another alert.
+    if last and last["analysis"]["directions"] == analysis.directions and delivery != "retry":
+        return next_check
+    message = format_message(event, analysis, release.url, preliminary, update=bool(last and delivery != "retry"))
+    if dry_run:
+        logging.info("%s", message)
+    elif storage.record(event_id, phase, fingerprint, now, payload):
+        result = send_telegram(message)
+        storage.finish(event_id, phase, fingerprint, result)
+        logging.info("Evento %s %s: Telegram %s", event_id, phase, result)
+    return next_check
+
+
+def main(now=None, dry_run=False):
+    now = now or datetime.now(timezone.utc)
+    events, next_check = _calendar(now)
+    for event in events:
+        if not event_kind(event["event"]):
+            continue
+        stamp = datetime.fromisoformat(event["date_utc"])
+        if now < stamp - PRE_WINDOW:
+            next_check = min(next_check, stamp - PRE_WINDOW)
+        elif now < stamp + POST_WINDOW:
+            try:
+                due = _process(event, stamp, now, dry_run)
+                if due < stamp + POST_WINDOW:
+                    next_check = min(next_check, due)
+            except Exception:
+                logging.exception("Elaborazione evento %s", event["id"])
+                next_check = min(next_check, now + timedelta(seconds=30))
+    return max(1, (next_check - now).total_seconds())
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+    main(dry_run=args.dry_run)

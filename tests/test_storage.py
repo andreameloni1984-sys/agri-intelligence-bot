@@ -1,45 +1,39 @@
-import os
-import tempfile
+import sqlite3
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from oracle.models import Signal
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 from oracle import storage
 
 
-class StorageTests(unittest.TestCase):
+class JournalTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.old_path = storage.DB_PATH
-        storage.DB_PATH = os.path.join(self.tmp.name, "test.sqlite3")
+        directory = self.enterContext(TemporaryDirectory())
+        self.path = Path(directory) / "journal.sqlite3"
+        self.enterContext(patch("oracle.storage.DB_PATH", str(self.path)))
+        self.now = datetime.now(timezone.utc)
 
-    def tearDown(self):
-        storage.DB_PATH = self.old_path
-        self.tmp.cleanup()
+    def test_concurrent_delivery_claim_is_unique(self):
+        storage.save("ready", True)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(lambda _: storage.record("event", "published", "abc", self.now, {}), range(6)))
+        self.assertEqual(results.count(True), 1)
 
-    def signal_at(self, stamp, direction="LONG", news_urls=None):
-        return Signal("Gold", "GC=F", direction, 70, 0, 0.2, 2000, 1985, 2022.5, 2037.5,
-                      "test", news_urls or [], stamp)
+    def test_definite_rejection_retries_but_unknown_delivery_does_not(self):
+        key = ("event", "published", "abc")
+        self.assertTrue(storage.record(*key, self.now, {}))
+        storage.finish(*key, "retry")
+        self.assertTrue(storage.record(*key, self.now, {}))
+        storage.finish(*key, "unknown")
+        self.assertFalse(storage.record(*key, self.now, {}))
 
-    def test_same_direction_is_deduplicated_within_hour_even_if_news_changes(self):
-        first = self.signal_at(datetime(2026, 11, 8, 10, 5, tzinfo=timezone.utc),
-                               news_urls=["https://example.test/a"])
-        repeated = self.signal_at(datetime(2026, 11, 8, 10, 55, tzinfo=timezone.utc),
-                                  news_urls=["https://example.test/b"])
-        self.assertTrue(storage.save_result(first, "Gold", "GC=F", "SIGNAL"))
-        self.assertFalse(storage.save_result(repeated, "Gold", "GC=F", "SIGNAL"))
-
-    def test_same_direction_can_alert_again_in_next_hour(self):
-        first = self.signal_at(datetime(2026, 11, 8, 10, 55, tzinfo=timezone.utc))
-        next_hour = self.signal_at(datetime(2026, 11, 8, 11, 1, tzinfo=timezone.utc))
-        self.assertTrue(storage.save_result(first, "Gold", "GC=F", "SIGNAL"))
-        self.assertTrue(storage.save_result(next_hour, "Gold", "GC=F", "SIGNAL"))
-
-    def test_failed_telegram_delivery_can_be_retried(self):
-        signal = self.signal_at(datetime(2026, 11, 8, 10, 5, tzinfo=timezone.utc))
-        self.assertTrue(storage.save_result(signal, "Gold", "GC=F", "SIGNAL"))
-        storage.delete_signal(signal)
-        self.assertTrue(storage.save_result(signal, "Gold", "GC=F", "SIGNAL"))
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_earlier_journal_database_is_preserved(self):
+        with sqlite3.connect(self.path) as db:
+            db.execute("CREATE TABLE runs (id INTEGER PRIMARY KEY)")
+            db.execute("INSERT INTO runs VALUES (1)")
+        storage.save("official_calendar", {"events": []})
+        with sqlite3.connect(self.path) as db:
+            self.assertEqual(db.execute("SELECT id FROM runs").fetchall(), [(1,)])
