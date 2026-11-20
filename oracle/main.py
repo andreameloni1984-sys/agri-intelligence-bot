@@ -24,6 +24,7 @@ def _calendar(now):
     events = cache.get("events", [])
     refresh = datetime.fromisoformat(cache["refresh"]) if "refresh" in cache else now
     if now < refresh:
+        logging.info("[CALENDAR] cache_hit events=%d next_refresh=%s", len(events), refresh.isoformat())
         return events, refresh
     fresh = fetch_economic_calendar(now=now)
     # Preserve sources that are temporarily unavailable without keeping replaced
@@ -33,7 +34,7 @@ def _calendar(now):
                       and datetime.fromisoformat(item["date_utc"]) >= now - POST_WINDOW]
     refresh = now + timedelta(hours=6 if len(sources) >= 6 else 1)
     storage.save("official_calendar", {"events": events, "refresh": refresh.isoformat()})
-    logging.info("Calendario: %d eventi, %d fonti aggiornate", len(events), len(sources))
+    logging.info("[CALENDAR] refreshed events=%d sources=%s next_refresh=%s", len(events), ",".join(sorted(sources)) or "none", refresh.isoformat())
     return events, refresh
 
 
@@ -58,6 +59,7 @@ def _process(event, stamp, now, dry_run):
     last, delivery = storage.last_result(event_id, phase)
     due = datetime.fromisoformat(check["next"]) if "next" in check else now
     if now < due:
+        logging.info("[EVENT] id=%s phase=%s skipped=not_due next=%s", event_id, phase, due.isoformat())
         return due
 
     context_key = f"context:{event_id}"
@@ -95,6 +97,7 @@ def _process(event, stamp, now, dry_run):
         storage.save(f"availability:{event_id}", {"state": "published", "checked_at": now.isoformat()})
     release = release or Release({}, event["url"])
     analysis = interpret(kind, release, context, preliminary)
+    logging.info("[ANALYSIS] event=%s phase=%s directions=%s", event_id, phase, json.dumps(analysis.directions, sort_keys=True))
     directional = any(direction != UNKNOWN for direction in analysis.directions.values())
     payload = {"release": asdict(release), "context": asdict(context), "analysis": asdict(analysis)}
     material = [sorted(analysis.directions.items()), analysis.reason]
@@ -119,13 +122,17 @@ def _process(event, stamp, now, dry_run):
 def main(now=None, dry_run=False):
     now = now or datetime.now(timezone.utc)
     events, next_check = _calendar(now)
+    eligible = 0
+    active = 0
     for event in events:
         if not event_kind(event["event"]):
             continue
+        eligible += 1
         stamp = datetime.fromisoformat(event["date_utc"])
         if now < stamp - PRE_WINDOW:
             next_check = min(next_check, stamp - PRE_WINDOW)
         elif now < stamp + POST_WINDOW:
+            active += 1
             try:
                 due = _process(event, stamp, now, dry_run)
                 if due < stamp + POST_WINDOW:
@@ -133,6 +140,7 @@ def main(now=None, dry_run=False):
             except Exception:
                 logging.exception("Elaborazione evento %s", event["id"])
                 next_check = min(next_check, now + timedelta(seconds=30))
+    logging.info("[DONE] calendar_events=%d eligible=%d active_windows=%d next_check=%s", len(events), eligible, active, next_check.isoformat())
     return max(1, (next_check - now).total_seconds())
 
 
