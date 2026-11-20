@@ -130,8 +130,6 @@ def main(now=None, dry_run=False):
     confirmed_signals = 0
     for item in headlines:
         key = "news_seen:" + hashlib.sha256(item["url"].encode()).hexdigest()
-        if storage.load(key, False):
-            continue
         new_headlines += 1
         logging.info("[NEWS_CANDIDATE] markets=%s published=%s url=%s title=%s",
                      ",".join(item["markets"]), item["published"], item["url"], item["title"])
@@ -148,7 +146,7 @@ def main(now=None, dry_run=False):
             changes = market["changes"]
             message = ("🔴 STELLA ROSSA — NOTIZIE + PREZZO\\n"
                        f"{asset.upper()} — {direction} (momentum confermato, non ordine)\\n"
-                       f"Prezzo indicativo: {market['price']:.4f} USD\\n"
+                       f"Prezzo future indicativo: {market['price']:.4f} (unità del provider)\\n"
                        f"5m / 15m / 60m: {changes[0]:+.2f}% / {changes[1]:+.2f}% / {changes[2]:+.2f}%\\n"
                        f"Quotazione UTC: {market['time']}\\n"
                        f"Notizia: {item['title']}\\nFonte: {item['url']}\\n"
@@ -165,7 +163,6 @@ def main(now=None, dry_run=False):
                     storage.save(signal_key, True)
                     confirmed_signals += 1
             break
-        storage.save(key, True)
     logging.info("[NEWS_DONE] candidates=%d new=%d signals=%d",
                  len(headlines), new_headlines, confirmed_signals)
     eligible = 0
