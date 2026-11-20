@@ -12,9 +12,9 @@ MACRO_ASSETS = {
     "fomc": ("Gold", "Platinum"),
 }
 THRESHOLDS = {
-    "headline_mom_pct": 0.05, "core_mom_pct": 0.05, "upper_pct": 0.12,
-    "claims": 5000, "payrolls": 25000, "unemployment_pct": 0.05,
-    "crude_mb": 0.5, "gasoline_mb": 0.5, "distillates_mb": 0.5,
+    "headline_mom_pct": 0, "core_mom_pct": 0, "upper_pct": 0,
+    "claims": 0, "payrolls": 0, "unemployment_pct": 0,
+    "crude_mb": 0, "gasoline_mb": 0, "distillates_mb": 0,
 }
 UNKNOWN = "NON DETERMINABILE"
 
@@ -56,9 +56,9 @@ def interpret(kind, release, context, preliminary=False):
             if len(selected) < 2 and all(row[0] != asset for row in selected):
                 selected.append((asset, 0, ""))
         reasons = [f"{asset}: scorte finali USA {change:+.1%} rispetto {label}"
-                   for asset, change, label in selected if abs(change) >= .005]
+                   for asset, change, label in selected if abs(change) > 0]
         return Analysis(
-            {asset: _direction(-change if abs(change) >= .005 else 0) for asset, change, _ in selected},
+            {asset: _direction(-change if abs(change) > 0 else 0) for asset, change, _ in selected},
             ". ".join(reasons) or "Scostamenti sulle scorte finali USA insufficienti o senza confronto omogeneo.",
         )
 
