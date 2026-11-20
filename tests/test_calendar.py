@@ -1,7 +1,7 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from oracle.calendar import (
-    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, relevant_events,
+    parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, parse_bea_calendar, federal_holiday_conflicts, scheduled_weekly_claims,
 )
 
 
@@ -26,13 +26,14 @@ class CalendarTests(unittest.TestCase):
 
     def test_eia_generates_next_wednesday_in_utc(self):
         now = datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc)
-        events = parse_eia_schedule("<html></html>", now=now, days=5)
+        events = parse_eia_schedule("<html>The standard release time is Wednesday.</html>", now=now, days=5)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["event"], "Weekly Petroleum Status Report")
         self.assertEqual(events[0]["date_utc"], "2026-11-11T15:30:00+00:00")
 
     def test_eia_holiday_shift_is_found_on_thursday_release_day(self):
         html = """
+        The standard release time is Wednesday.
         <table><tr><td>November 6, 2026</td><td>November 12, 2026</td>
         <td>Thursday</td><td>12:00 p.m.</td><td>Veterans Day</td></tr></table>
         """
@@ -57,22 +58,23 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(events[0]["date_utc"], "2026-11-10T17:00:00+00:00")
 
 
-    def test_event_mapping_targets_relevant_assets_and_ignores_unrelated_assets(self):
-        from oracle.config import UNIVERSE
-        now = datetime(2026, 11, 10, 16, 0, tzinfo=timezone.utc)
-        events = [
-            {"event": "USDA WASDE supply and demand report", "source": "USDA",
-             "date_utc": "2026-11-10T17:00:00+00:00", "url": "https://usda.gov"},
-            {"event": "Weekly Petroleum Status Report", "source": "EIA",
-             "date_utc": "2026-11-11T15:30:00+00:00", "url": "https://eia.gov"},
-        ]
-        wheat = next(item for item in UNIVERSE if item.name == "Wheat")
-        wti = next(item for item in UNIVERSE if item.name == "WTI")
-        gold = next(item for item in UNIVERSE if item.name == "Gold")
-        self.assertEqual(relevant_events(wheat, events, now)[0]["phase"], "IN ARRIVO")
-        self.assertEqual(relevant_events(wti, events, now)[0]["source"], "EIA")
-        self.assertEqual(relevant_events(gold, events, now), [])
+    def test_eia_does_not_generate_events_from_an_error_page(self):
+        self.assertEqual(parse_eia_schedule("<html>Access Denied</html>"), [])
 
+    def test_dol_omits_holiday_weeks_without_confirmed_exception(self):
+        now = datetime(2026, 11, 10, tzinfo=timezone.utc)
+        events = scheduled_weekly_claims(now, 20, federal_holiday_conflicts(2026))
+        self.assertEqual([event["date_utc"][:10] for event in events], ["2026-11-19"])
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_bea_uses_published_utc_time(self):
+        ics = """BEGIN:VEVENT
+SUMMARY:Personal Income and Outlays\\, October 2026
+DTSTART:20261125T133000Z
+END:VEVENT"""
+        now = datetime(2026, 11, 10, tzinfo=timezone.utc)
+        self.assertEqual(parse_bea_calendar(ics, now)[0]["date_utc"], "2026-11-25T13:30:00+00:00")
+
+    def test_partial_dst_overlap_uses_us_release_time(self):
+        now = datetime(2026, 3, 7, tzinfo=timezone.utc)
+        html = "<p>Wednesday, March 11, 2026 08:30 AM Consumer Price Index for February 2026</p>"
+        self.assertEqual(parse_bls_calendar(html, now)[0]["date_utc"], "2026-03-11T12:30:00+00:00")

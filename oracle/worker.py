@@ -1,29 +1,23 @@
-"""Persistent Render worker: execute one ORACLE scan every five minutes."""
+"""Persistent event scheduler."""
+from datetime import datetime, timezone
 import logging
 import time
-from datetime import datetime, timezone
 
 from .main import main
-
-INTERVAL_SECONDS = 300
 
 
 def run_forever():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logging.info("STELLA ROSSA worker starting; interval=%ss", INTERVAL_SECONDS)
+    logging.info("STELLA ROSSA — calendario USA, PAPER ONLY")
     while True:
-        started = time.monotonic()
-        stamp = datetime.now(timezone.utc).isoformat()
         try:
-            logging.info("scan cycle started at %s", stamp)
-            main()
-            logging.info("scan cycle completed")
+            started = datetime.now(timezone.utc)
+            delay = main(now=started)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+            time.sleep(max(1, delay - elapsed))
         except Exception:
-            logging.exception("scan cycle crashed; worker will retry next cycle")
-        elapsed = time.monotonic() - started
-        delay = max(0, INTERVAL_SECONDS - elapsed)
-        logging.info("next scan in %.1f seconds", delay)
-        time.sleep(delay)
+            logging.exception("Errore del pianificatore, nuovo tentativo tra 30 secondi")
+            time.sleep(30)
 
 
 if __name__ == "__main__":

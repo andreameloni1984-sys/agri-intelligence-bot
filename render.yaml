@@ -13,10 +13,6 @@ services:
     envVars:
       - key: DB_PATH
         value: /var/data/oracle.sqlite3
-      - key: GDELT_ENABLED
-        value: "true"
-      - key: MAX_QUOTE_AGE_MINUTES
-        value: "45"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
