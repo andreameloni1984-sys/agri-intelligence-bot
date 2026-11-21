@@ -18,6 +18,8 @@ def connect():
             event_id TEXT NOT NULL, phase TEXT NOT NULL, fingerprint TEXT NOT NULL,
             observed_at TEXT NOT NULL, payload TEXT NOT NULL, delivery TEXT NOT NULL,
             PRIMARY KEY (event_id, phase, fingerprint));
+        CREATE TABLE IF NOT EXISTS stella_journal (
+            event_id TEXT PRIMARY KEY, event_time TEXT NOT NULL, data TEXT NOT NULL);
     """)
     return db
 
@@ -58,3 +60,20 @@ def finish(event_id, phase, fingerprint, delivery):
         db.execute("""UPDATE stella_results SET delivery=?
             WHERE event_id=? AND phase=? AND fingerprint=? AND delivery='pending'""",
             (delivery, event_id, phase, fingerprint))
+
+
+def journal_update(event_id, event_time, **fields):
+    """Merge fields into the event's journal entry (one row per calendar event)."""
+    with closing(connect()) as db, db:
+        row = db.execute("SELECT data FROM stella_journal WHERE event_id=?", (event_id,)).fetchone()
+        data = {**(json.loads(row[0]) if row else {}), **fields}
+        db.execute("INSERT OR REPLACE INTO stella_journal VALUES (?,?,?)",
+                   (event_id, event_time, json.dumps(data, ensure_ascii=False)))
+    return data
+
+
+def journal_entries():
+    with closing(connect()) as db:
+        rows = db.execute("SELECT event_id, event_time, data FROM stella_journal ORDER BY event_time").fetchall()
+    return [{"event_id": event_id, "event_time": event_time, **json.loads(data)}
+            for event_id, event_time, data in rows]

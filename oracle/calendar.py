@@ -1,16 +1,19 @@
-"""Official US economic release calendar (BLS, EIA, Fed and USDA WASDE).
+"""Official US economic release calendar (BLS, BEA, DOL, EIA, Fed, USDA WASDE).
 
-Times are normalized from America/New_York to UTC. If an official source is
-unavailable or its format changes, that source returns no events; dates are
-never inferred from news headlines.
+Times are normalized from America/New_York to UTC with zoneinfo, so US and
+European daylight-saving changes are handled automatically. If an official
+source is unavailable or its format changes, that source returns no events;
+dates are never inferred from news headlines.
 """
 from datetime import date, datetime, time, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 import re
-import requests
 import logging
+
+from . import net
+from .consensus import ff_claims_dates, forexfactory_week
 from .models import event_kind
 
 ET = ZoneInfo("America/New_York")
@@ -18,7 +21,8 @@ EIA_URL = "https://www.eia.gov/petroleum/supply/weekly/schedule.php"
 BEA_URL = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics"
 FED_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
 USDA_URL = "https://www.usda.gov/about-usda/general-information/staff-offices/office-chief-economist/commodity-markets/wasde-report"
-USER_AGENT = "Stella-Rossa/1.0 (+official-calendar-reader)"
+EIA_RELEASE_URL = "https://www.eia.gov/petroleum/supply/weekly/"
+BLS_RELEASES = {"cpi": "cpi", "ppi": "ppi", "nfp": "empsit"}
 MONTHS = {m.lower(): i for i, m in enumerate(
     ("January February March April May June July August September October November December").split(), 1)}
 MONTH_ABBR = {m[:3].lower(): i for i, m in enumerate(
@@ -76,7 +80,7 @@ def parse_bls_calendar(html: str, now: datetime | None = None) -> list[dict]:
             continue
         if published_at >= now - timedelta(hours=2):
             events.append(_event(f"BLS:{event_day.isoformat()}:{title}", published_at,
-                                 title, "BLS", f"https://www.bls.gov/schedule/{event_day.year}/"))
+                                 title, "BLS", f"https://www.bls.gov/news.release/{BLS_RELEASES[event_kind(title)]}.nr0.htm"))
     return sorted(events, key=lambda item: item["date_utc"])
 
 
@@ -115,7 +119,7 @@ def parse_eia_schedule(html: str, now: datetime | None = None, days: int = 45) -
             stamp = datetime.combine(event_day, event_time, tzinfo=ET).astimezone(timezone.utc)
             if now - timedelta(hours=2) <= stamp:
                 event = _event(f"EIA:WPSR:{day.isoformat()}", stamp,
-                               "Weekly Petroleum Status Report", "EIA", EIA_URL)
+                               "Weekly Petroleum Status Report", "EIA", EIA_RELEASE_URL)
                 event["period"] = (day - timedelta(days=5)).isoformat()
                 events.append(event)
         day += timedelta(days=1)
@@ -132,7 +136,7 @@ def parse_fomc_calendar(html: str, now: datetime | None = None, days: int = 180)
         if not section:
             continue
         for match in re.finditer(
-            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:/(January|February|March|April|May|June|July|August|September|October|November|December))?\s+(\d{1,2})\s*[-–]\s*(\d{1,2})\*?",
+            r"\b(January|February|March|April|May|June|July|August|September|October|November|December)(?:/(January|February|March|April|May|June|July|August|September|October|November|December))?\s+(\d{1,2})\s*[-–]\s*(\d{1,2})\b\*?(?!\*?,?\s*\d{4})",
             section.group(1), re.IGNORECASE):
             month = MONTHS[(match.group(2) or match.group(1)).lower()]
             final_day = int(match.group(4))
@@ -144,7 +148,8 @@ def parse_fomc_calendar(html: str, now: datetime | None = None, days: int = 180)
             if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
                 events.append(_event(f"FED:FOMC:{meeting_day.isoformat()}", stamp,
                                      "FOMC policy decision / statement (scheduled meeting day 2)",
-                                     "Federal Reserve", FED_URL))
+                                     "Federal Reserve",
+                                     f"https://www.federalreserve.gov/newsevents/pressreleases/monetary{meeting_day:%Y%m%d}a.htm"))
     return sorted(events, key=lambda item: item["date_utc"])
 
 
@@ -168,7 +173,8 @@ def parse_wasde_calendar(html: str, now: datetime | None = None, days: int = 180
             stamp = datetime.combine(release_day, time(12, 0), tzinfo=ET).astimezone(timezone.utc)
             if now - timedelta(hours=2) <= stamp <= now + timedelta(days=days):
                 events.append(_event(f"USDA:WASDE:{release_day.isoformat()}", stamp,
-                                     "USDA WASDE supply and demand report", "USDA", USDA_URL))
+                                     "USDA WASDE supply and demand report", "USDA",
+                                     f"https://www.usda.gov/oce/commodity/wasde/wasde{release_day:%m%y}.pdf"))
     return sorted(events, key=lambda item: item["date_utc"])
 
 
@@ -189,7 +195,7 @@ def parse_bea_calendar(ics: str, now: datetime) -> list[dict]:
     return events
 
 
-DOL_URL = "https://www.dol.gov/newsroom/economicdata"
+DOL_URL = "https://www.dol.gov/ui/data.pdf"
 
 
 def scheduled_weekly_claims(now: datetime, days: int, holidays: set[date]) -> list[dict]:
@@ -206,6 +212,23 @@ def scheduled_weekly_claims(now: datetime, days: int, holidays: set[date]) -> li
                            "Unemployment Insurance Weekly Claims", "DOL", DOL_URL)
             event["period"] = (day - timedelta(days=5)).isoformat()
             events.append(event)
+    return events
+
+
+def holiday_week_claims(listed, regular, now):
+    """Holiday weeks: DOL moves the release. Use the time listed for this week by the
+    market calendar only where the regular cadence produced no event."""
+    taken = {datetime.fromisoformat(event["date_utc"]).astimezone(ET).isocalendar()[:2] for event in regular}
+    events = []
+    for stamp in listed:
+        day = stamp.astimezone(ET).date()
+        if day.isocalendar()[:2] in taken or stamp < now - timedelta(hours=2):
+            continue
+        event = _event(f"DOL:CLAIMS:{day.isoformat()}", stamp,
+                       "Unemployment Insurance Weekly Claims", "DOL", DOL_URL)
+        event["period"] = (day - timedelta(days=day.weekday() + 2)).isoformat()
+        event["note"] = "settimana festiva: orario dal calendario ForexFactory"
+        events.append(event)
     return events
 
 
@@ -241,17 +264,17 @@ def fetch_economic_calendar(days: int = 45, now: datetime | None = None) -> list
     def fetch_one(source):
         url, parser = source
         try:
-            response = requests.get(url, timeout=8, headers={"User-Agent": USER_AGENT})
-            response.raise_for_status()
-            return parser(response.text)
-        except (requests.RequestException, ValueError) as exc:
-            logging.warning("Calendario %s: %s", url, type(exc).__name__)
+            return parser(net.get(url, timeout=10).text)
+        except Exception as exc:
+            logging.warning("[CALENDAR] source=%s error=%s", url, type(exc).__name__)
             return []
 
     with ThreadPoolExecutor(max_workers=len(sources)) as pool:
         unique = {event["id"]: event for batch in pool.map(fetch_one, sources) for event in batch
                   if datetime.fromisoformat(event["date_utc"]) <= end}
     holidays = set().union(*(federal_holiday_conflicts(yr) for yr in range(year - 1, year + 2 + days // 365)))
-    unique.update((event["id"], event) for event in scheduled_weekly_claims(now, days, holidays)
-                  if datetime.fromisoformat(event["date_utc"]) <= end)
+    claims = [event for event in scheduled_weekly_claims(now, days, holidays)
+              if datetime.fromisoformat(event["date_utc"]) <= end]
+    claims += holiday_week_claims(ff_claims_dates(forexfactory_week(now)), claims, now)
+    unique.update((event["id"], event) for event in claims)
     return sorted(unique.values(), key=lambda item: item["date_utc"])

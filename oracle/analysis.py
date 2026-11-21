@@ -1,6 +1,10 @@
-"""Transparent economic hypotheses for a single scheduled release."""
-import re
+"""Transparent economic hypotheses for a single scheduled release.
 
+Before publication the hypothesis compares an independent, attributed estimate
+(``context.scenario``) with the consensus; after publication it compares the
+official figure with the consensus. Without either comparison the direction is
+reported as not determinable instead of being guessed.
+"""
 from .models import Analysis
 
 MACRO_ASSETS = {
@@ -11,19 +15,13 @@ MACRO_ASSETS = {
     "claims": ("Gold", "Copper"),
     "fomc": ("Gold", "Platinum"),
 }
-THRESHOLDS = {
-    "headline_mom_pct": 0, "core_mom_pct": 0, "upper_pct": 0,
-    "claims": 0, "payrolls": 0, "unemployment_pct": 0,
-    "crude_mb": 0, "gasoline_mb": 0, "distillates_mb": 0,
-}
 UNKNOWN = "NON DETERMINABILE"
 
 
 def _difference(metric, values, baseline):
     if metric not in values or metric not in baseline:
         return 0
-    change = values[metric] - baseline[metric]
-    return change if abs(change) >= THRESHOLDS[metric] else 0
+    return round(values[metric] - baseline[metric], 6)
 
 
 def _direction(pressure):
@@ -34,7 +32,29 @@ def _unknown(assets, reason):
     return Analysis(dict.fromkeys(assets, UNKNOWN), reason)
 
 
+DEFAULT_ASSETS = {**MACRO_ASSETS, "eia": ("WTI", "Brent"), "wasde": ("Corn", "Soybeans")}
+
+
+def _fmt(values):
+    return ", ".join(f"{key} {value:g}" for key, value in sorted(values.items())) or "n/d"
+
+
 def interpret(kind, release, context, preliminary=False):
+    if preliminary and not context.scenario:
+        return _unknown(DEFAULT_ASSETS[kind],
+                        "Previsione non disponibile: nessuna stima indipendente verificabile del dato. "
+                        f"Consenso: {_fmt(context.consensus)}. Precedente: {_fmt(context.previous)}.")
+    if preliminary and kind != "wasde" and not set(context.scenario) & set(context.consensus):
+        return _unknown(DEFAULT_ASSETS[kind],
+                        f"Previsione non disponibile: stima {context.scenario_source or 'indipendente'} "
+                        f"({_fmt(context.scenario)}) senza consenso confrontabile.")
+    result = _interpret(kind, release, context, preliminary)
+    if preliminary and context.scenario_source:
+        result.reason = f"Stima {context.scenario_source} confrontata con il consenso. {result.reason}"
+    return result
+
+
+def _interpret(kind, release, context, preliminary):
     values = context.scenario if preliminary else release.actual
     baseline = context.consensus
     previous = {**context.previous, **release.previous}
@@ -59,7 +79,7 @@ def interpret(kind, release, context, preliminary=False):
                    for asset, change, label in selected if abs(change) > 0]
         return Analysis(
             {asset: _direction(-change if abs(change) > 0 else 0) for asset, change, _ in selected},
-            ". ".join(reasons) or "Scostamenti sulle scorte finali USA insufficienti o senza confronto omogeneo.",
+            ". ".join(reasons) or "Scorte finali USA invariate o senza confronto omogeneo.",
         )
 
     assets = ("WTI", "Brent") if kind == "eia" else MACRO_ASSETS[kind]
@@ -68,19 +88,12 @@ def interpret(kind, release, context, preliminary=False):
         products = [_difference(metric, values, baseline) for metric in ("gasoline_mb", "distillates_mb")]
         if crude and any(crude * product < 0 and abs(product) >= abs(crude) for product in products):
             return _unknown(assets, "Scorte di greggio e prodotti raffinati indicano pressioni opposte.")
-        counterforce = "build|rise|increase" if crude > 0 else "draw|fall|decline"
-        if not preliminary and crude and any(
-            re.search(rf"\b(?:offset|counter|outweigh)\w* (?:the |a |an )?(?:U\.S\. )?"
-                      rf"(?:crude (?:oil )?)?(?:stocks? |inventor(?:y|ies) )?(?:{counterforce})\b", title, re.I)
-            and re.search(r"\b(?:crude|EIA)\b", title, re.I)
-            for title in context.headlines
-        ):
-            return _unknown(assets, "Reuters riporta un fattore che compensa la pressione delle scorte di greggio.")
         if not crude:
-            return _unknown(assets, "Sorpresa sulle scorte di greggio insufficiente o consenso indisponibile.")
+            return _unknown(assets, "Scorte di greggio in linea con il consenso o consenso indisponibile.")
         return Analysis(dict.fromkeys(assets, _direction(-crude)),
-                        f"Scorte di greggio {crude:+.2f} mln barili rispetto al consenso. Possibile pressione "
-                        f"{'ribassista' if crude > 0 else 'rialzista'} sul petrolio.")
+                        f"Scorte di greggio {values['crude_mb']:+.2f} mln barili contro consenso {baseline['crude_mb']:+.2f} "
+                        f"({crude:+.2f}). Offerta {'più abbondante' if crude > 0 else 'più scarsa'} del previsto: "
+                        f"possibile pressione {'ribassista' if crude > 0 else 'rialzista'} sul petrolio.")
 
     if kind in {"cpi", "ppi", "pce"}:
         headline = _difference("headline_mom_pct", values, baseline)
@@ -89,26 +102,31 @@ def interpret(kind, release, context, preliminary=False):
             return _unknown(assets, "Inflazione generale e di fondo sorprendono in direzioni opposte.")
         surprise = core or headline
         if not surprise:
-            return _unknown(assets, "Sorpresa sull’inflazione insufficiente o consenso indisponibile.")
+            return _unknown(assets, "Inflazione in linea con il consenso o consenso indisponibile.")
         if kind in {"cpi", "pce"} and not core:
             assets = ("Gold", "Copper")
+        metric = "core_mom_pct" if core else "headline_mom_pct"
         return Analysis(dict.fromkeys(assets, _direction(-surprise)),
-                        f"Inflazione {'di fondo' if core else 'generale'} {surprise:+.2f} punti sul consenso. "
-                        "Possibile effetto su tassi e dollaro.")
+                        f"Inflazione {'di fondo' if core else 'generale'} m/m {values[metric]:.1f}% contro consenso "
+                        f"{baseline[metric]:.1f}%: {'superiore' if surprise > 0 else 'inferiore'} alle attese, possibile "
+                        f"{'rafforzamento' if surprise > 0 else 'indebolimento'} di dollaro e rendimenti.")
 
     if kind == "fomc":
         surprise = _difference("upper_pct", values, baseline)
         if not surprise:
             return _unknown(assets, "Tasso in linea con il consenso o consenso indisponibile. Guidance senza confronto verificabile.")
         return Analysis(dict.fromkeys(assets, _direction(-surprise)),
-                        f"Limite superiore dei tassi Fed {surprise:+.2f} punti sul consenso. Possibile effetto su dollaro e rendimenti.")
+                        f"Limite superiore Fed {values['upper_pct']:.2f}% contro consenso {baseline['upper_pct']:.2f}%: "
+                        f"politica {'più restrittiva' if surprise > 0 else 'più espansiva'} del previsto, possibile effetto su dollaro e rendimenti.")
 
     if kind == "claims":
         surprise = -_difference("claims", values, baseline)
         revision = release.revised.get("claims", previous.get("claims", 0)) - previous.get("claims", 0)
         if surprise and surprise * revision > 0 and abs(revision) >= abs(surprise):
             return _unknown(assets, "La revisione delle richieste precedenti contrasta con la sorpresa corrente.")
-        reason = f"Richieste {-surprise:+,.0f} sul consenso. Possibili effetti opposti su rendimenti e domanda industriale."
+        reason = (f"Richieste {values.get('claims', 0):,.0f} contro consenso {baseline.get('claims', 0):,.0f}: lavoro "
+                  f"{'più solido' if surprise > 0 else 'più debole'} del previsto. Effetto opposto su oro (rendimenti) "
+                  "e rame (domanda industriale).").replace(",", ".")
     else:
         surprise = _difference("payrolls", values, baseline)
         unemployment = _difference("unemployment_pct", values, baseline)
@@ -116,7 +134,9 @@ def interpret(kind, release, context, preliminary=False):
                         if key in release.previous and key.startswith("payrolls"))
         if surprise and (surprise * unemployment > 0 or surprise * revisions < 0 and abs(revisions) >= abs(surprise)):
             return _unknown(assets, "Occupazione, disoccupazione o revisioni segnalano impulsi contrastanti.")
-        reason = f"Nuovi impieghi {surprise:+,.0f} sul consenso. Possibili effetti opposti su rendimenti e domanda industriale."
+        reason = (f"Nuovi impieghi {values.get('payrolls', 0):,.0f} contro consenso {baseline.get('payrolls', 0):,.0f}: lavoro "
+                  f"{'più solido' if surprise > 0 else 'più debole'} del previsto. Effetto opposto su oro (rendimenti) "
+                  "e rame (domanda industriale).").replace(",", ".")
     if not surprise:
-        return _unknown(assets, "Sorpresa sul lavoro insufficiente o consenso indisponibile.")
+        return _unknown(assets, "Dato sul lavoro in linea con il consenso o consenso indisponibile.")
     return Analysis({assets[0]: _direction(-surprise), assets[1]: _direction(surprise)}, reason)

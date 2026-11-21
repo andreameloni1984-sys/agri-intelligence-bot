@@ -2,7 +2,9 @@ import unittest
 from datetime import date, datetime, timezone
 from oracle.calendar import (
     parse_bls_calendar, parse_eia_schedule, parse_fomc_calendar, parse_wasde_calendar, parse_bea_calendar, federal_holiday_conflicts, scheduled_weekly_claims,
+    holiday_week_claims,
 )
+from tests.fixtures import text
 
 
 class CalendarTests(unittest.TestCase):
@@ -78,3 +80,52 @@ END:VEVENT"""
         now = datetime(2026, 3, 7, tzinfo=timezone.utc)
         html = "<p>Wednesday, March 11, 2026 08:30 AM Consumer Price Index for February 2026</p>"
         self.assertEqual(parse_bls_calendar(html, now)[0]["date_utc"], "2026-03-11T12:30:00+00:00")
+
+
+class OfficialCalendarFixtureTests(unittest.TestCase):
+    """Calendar pages downloaded from the agencies on 2026-11-21."""
+    now = datetime(2026, 11, 21, 5, 0, tzinfo=timezone.utc)
+
+    def test_bls_2026_schedule(self):
+        events = parse_bls_calendar(text("bls_schedule_2026.txt"), self.now)
+        self.assertEqual([(e["date_utc"], e["url"]) for e in events], [
+            ("2026-12-04T13:30:00+00:00", "https://www.bls.gov/news.release/empsit.nr0.htm"),
+            ("2026-12-10T13:30:00+00:00", "https://www.bls.gov/news.release/cpi.nr0.htm"),
+            ("2026-12-15T13:30:00+00:00", "https://www.bls.gov/news.release/ppi.nr0.htm"),
+        ])
+
+    def test_fomc_ignores_note_about_next_year_meeting(self):
+        events = parse_fomc_calendar(text("fomc_calendar.txt"), self.now, days=180)
+        days = [e["date_utc"][:10] for e in events]
+        self.assertEqual(days, ["2026-12-09", "2027-01-27", "2027-03-17", "2027-04-28"])
+        self.assertEqual(events[0]["date_utc"], "2026-12-09T19:00:00+00:00")  # 14:00 EST
+        self.assertEqual(events[2]["date_utc"], "2027-03-17T18:00:00+00:00")  # 14:00 EDT
+        self.assertTrue(events[0]["url"].endswith("/monetary20261209a.htm"))
+
+    def test_wasde_eia_bea_official_pages(self):
+        wasde = parse_wasde_calendar(text("wasde_calendar.txt"), self.now, days=60)
+        self.assertEqual(wasde[0]["date_utc"], "2026-12-10T17:00:00+00:00")
+        self.assertTrue(wasde[0]["url"].endswith("/wasde1226.pdf"))
+        eia = parse_eia_schedule(text("eia_schedule.txt"), self.now, days=14)
+        self.assertEqual(eia[0]["date_utc"], "2026-11-25T15:30:00+00:00")
+        bea = parse_bea_calendar(text("bea_calendar.ics"), self.now)
+        self.assertEqual((bea[0]["event"], bea[0]["date_utc"]),
+                         ("Personal Income and Outlays, October 2026", "2026-11-25T13:30:00+00:00"))
+
+    def test_holiday_week_claims_use_listed_time_only_where_cadence_is_omitted(self):
+        listed = [datetime(2026, 11, 25, 13, 30, tzinfo=timezone.utc), datetime(2026, 12, 3, 13, 30, tzinfo=timezone.utc)]
+        regular = scheduled_weekly_claims(self.now, 20, federal_holiday_conflicts(2026))
+        extra = holiday_week_claims(listed, regular, self.now)
+        self.assertEqual([e["id"] for e in extra], ["DOL:CLAIMS:2026-11-25"])
+        self.assertIn("ForexFactory", extra[0]["note"])
+
+    def test_rome_time_follows_both_daylight_saving_calendars(self):
+        from oracle.analysis import Analysis
+        from oracle.notify import format_message
+        analysis = Analysis({"Gold": "SHORT", "Copper": "LONG"}, "test")
+        for day, rome in (("March 11, 2026", "13:30"), ("March 31, 2026", "14:30"), ("November 3, 2026", "14:30"),
+                          ("October 28, 2026", "13:30"), ("November 10, 2026", "14:30")):
+            weekday = datetime.strptime(day, "%B %d, %Y").strftime("%A")
+            html = f"<p>{weekday}, {day} 08:30 AM Consumer Price Index for February 2026</p>"
+            event = parse_bls_calendar(html, datetime(2026, 1, 1, tzinfo=timezone.utc))[0]
+            self.assertIn(f"🕒 Pubblicazione: {rome} Italia", format_message(event, analysis, "x"), day)

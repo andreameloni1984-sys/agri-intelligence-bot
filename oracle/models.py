@@ -1,15 +1,16 @@
 from dataclasses import dataclass, field
 
 
+# kind: (official title prefix, short Telegram label)
 EVENTS = {
-    "cpi": ("Consumer Price Index", "Inflazione CPI"),
-    "ppi": ("Producer Price Index", "Prezzi alla produzione PPI"),
-    "pce": ("Personal Income and Outlays", "Inflazione PCE"),
-    "nfp": ("Employment Situation", "Occupazione USA"),
-    "claims": ("Unemployment Insurance Weekly Claims", "Richieste di disoccupazione"),
+    "cpi": ("Consumer Price Index", "CPI USA"),
+    "ppi": ("Producer Price Index", "PPI USA"),
+    "pce": ("Personal Income and Outlays", "PCE USA"),
+    "nfp": ("Employment Situation", "Occupazione USA (NFP)"),
+    "claims": ("Unemployment Insurance Weekly Claims", "Richieste di disoccupazione USA"),
     "eia": ("Weekly Petroleum Status Report", "Scorte petrolifere EIA"),
     "fomc": ("FOMC policy decision", "Decisione FOMC"),
-    "wasde": ("USDA WASDE", "Rapporto USDA WASDE"),
+    "wasde": ("USDA WASDE", "USDA WASDE"),
 }
 
 
@@ -34,7 +35,7 @@ class Context:
     scenario: dict[str, float] = field(default_factory=dict)
     periods: dict[str, str] = field(default_factory=dict)
     urls: list[str] = field(default_factory=list)
-    headlines: list[str] = field(default_factory=list)
+    scenario_source: str = ""
 
 
 @dataclass
