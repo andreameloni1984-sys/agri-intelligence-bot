@@ -13,6 +13,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.parse import urlparse
 
 import requests
 
@@ -35,7 +36,8 @@ class Network:
     def get(self, url, timeout=10, params=None, **_):
         self.calls.append(url)
         now = self.clock()
-        if "faireconomy" in url:
+        host = urlparse(url).hostname
+        if host == "nfs.faireconomy.media":
             return Mock(json=lambda: json.loads(text("forexfactory_week_2026-11-16.json")))
         if url.endswith("wpsr/table4.csv"):
             if now < EIA + timedelta(seconds=20):
@@ -45,7 +47,7 @@ class Network:
             if now < CLAIMS + timedelta(seconds=20):
                 raise requests.ConnectionError("not yet published")
             return Mock(content=raw("dol_claims_2026-11-19.pdf"))
-        if "finance.yahoo.com" in url:
+        if host == "query1.finance.yahoo.com":
             payload = self.yahoo[url.rsplit("/", 1)[1]]
             return Mock(json=lambda: payload)
         raise requests.ConnectionError(url)
@@ -97,7 +99,7 @@ class ReplayTests(unittest.TestCase):
         self.assertTrue(all(message.rstrip().endswith("PAPER ONLY") for message in messages))
 
         # Each source is asked only when needed: one ForexFactory download per hour at most.
-        self.assertLessEqual(sum("faireconomy" in url for url in self.network.calls), 3)
+        self.assertLessEqual(sum(urlparse(url).hostname == "nfs.faireconomy.media" for url in self.network.calls), 3)
 
         journal = {entry["event_id"]: entry for entry in storage.journal_entries()}
         eia = journal["EIA:WPSR:2026-11-18"]["published"]
