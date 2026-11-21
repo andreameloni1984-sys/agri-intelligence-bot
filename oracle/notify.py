@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 from zoneinfo import ZoneInfo
 
 import requests
@@ -7,28 +8,30 @@ from .config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from .models import EVENTS, event_kind
 
 ROME = ZoneInfo("Europe/Rome")
-LABELS = {"LONG": "🟢 LONG", "SHORT": "🔴 SHORT", "NON DETERMINABILE": "⚪ NON DETERMINABILE"}
+MEDALS = ("🥇", "🥈")
 
 
-def format_message(event, analysis, source, preliminary=False, update=False):
+def format_message(event, analysis, source, preliminary=False, test=False):
+    """Plain message; PREVISIONE (before the release) vs DATO PUBBLICATO (official figure)."""
     stamp = datetime.fromisoformat(event["date_utc"]).astimezone(ROME)
-    phase = "PREVISIONE PRELIMINARE" if preliminary else "ANALISI DEL DATO PUBBLICATO"
-    if update:
-        phase += " — AGGIORNAMENTO"
-    title = EVENTS[event_kind(event["event"])][1]
-    directions = [f"{rank}. {asset.upper()} — {LABELS[direction]}"
-                  for rank, (asset, direction) in enumerate(analysis.directions.items(), 1)]
+    status = ("PREVISIONE — dato non ancora pubblicato" if preliminary
+              else "DATO PUBBLICATO — analisi del valore ufficiale")
+    lines = [f"{medal} {asset.upper()} — {direction}"
+             for medal, (asset, direction) in zip(MEDALS, analysis.directions.items())]
     return "\n".join([
-        "🔴 STELLA ROSSA — CALENDARIO USA",
-        phase,
+        ("🧪 TEST — " if test else "") + "🔴 STELLA ROSSA",
         "",
-        f"📰 Evento: {title}",
-        *(directions or ["⚪ Direzione non determinabile"]),
+        f"📅 Evento: {EVENTS[event_kind(event['event'])][1]}",
+        f"🕒 Pubblicazione: {stamp:%H:%M} Italia ({stamp:%d/%m/%Y})",
+        "",
+        *(lines or ["⚪ Previsione non disponibile"]),
         "",
         f"📊 Motivo: {analysis.reason}",
-        f"🕒 Orario: {stamp:%d/%m/%Y %H:%M %Z}",
+        "",
+        f"🎯 Stato: {status}",
         f"🔗 Fonte: {source}",
-        "PAPER ONLY",
+        "",
+        "PAPER ONLY" + (" — MESSAGGIO DI TEST" if test else ""),
     ])
 
 
@@ -45,7 +48,9 @@ def send_telegram(message):
         if response.status_code == 429:
             return "retry"
         if 400 <= response.status_code < 500:
-            return "retry"
+            # Wrong token/chat or malformed request: retrying every cycle would not help.
+            logging.error("[TELEGRAM] rejected status=%s", response.status_code)
+            return "rejected"
         if response.status_code >= 500:
             return "unknown"
         return "delivered" if response.json().get("ok") else "retry"

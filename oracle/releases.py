@@ -3,21 +3,18 @@ import csv
 import io
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from xml.etree import ElementTree
 
-import requests
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError
 
-from .calendar import ET, USER_AGENT, _html_text
+from . import net
+from .calendar import ET, _html_text
 from .models import Release, event_kind
 
 BLS_SERIES = {"cpi": "cpi", "ppi": "ppi", "nfp": "empsit"}
 EIA_TABLE = "https://ir.eia.gov/wpsr/table4.csv"
-EIA_SERIES = {"crude_mb": "WCESTUS1", "gasoline_mb": "WGTSTUS1", "distillates_mb": "WDISTUS1"}
 DOL_PDF = "https://www.dol.gov/ui/data.pdf"
 FRED_TARGET = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFEDTARU"
 WASDE_URL = "https://www.usda.gov/oce/commodity/wasde/wasde{edition}.xml"
@@ -27,9 +24,7 @@ NUMBER = r"([+-]?\d[\d,]*(?:\.\d+)?)"
 
 
 def download(url):
-    response = requests.get(url, timeout=8, headers={"User-Agent": USER_AGENT})
-    response.raise_for_status()
-    return response
+    return net.get(url, timeout=10)
 
 
 def _number(text):
@@ -71,8 +66,7 @@ def parse_bls(html, kind, url, day):
                 key = f"payrolls_{older_month.lower()}"
                 previous[key], revised[key] = _number(older_old), _number(older_new)
         actual = {"payrolls": payrolls}
-        unemployment = re.search(
-            rf"unemployment rate (?:was|at|rose|fell|increased|decreased)[^.]*?\b{NUMBER} percent", text, re.I)
+        unemployment = re.search(r"the unemployment rate\b[^.%]{0,60}?\b(\d+\.\d) percent", text, re.I)
         if unemployment:
             actual["unemployment_pct"] = _number(unemployment[1])
         return Release(actual, url, previous, revised)
@@ -94,18 +88,6 @@ def parse_bls(html, kind, url, day):
     return Release(values, url, prior)
 
 
-def parse_eia_series(html):
-    text = _html_text(html)
-    release = re.search(r"(?<!Next )Release Date:\s*(\d+/\d+/\d{4})", text)
-    if not release:
-        return None, {}
-    observations = {}
-    for year, row in re.findall(r"(\d{4})-[A-Z][a-z]{2} ((?:\d{2}/\d{2} [\d,]+\s*)+)", text):
-        for day, value in re.findall(r"(\d{2}/\d{2}) ([\d,]+)", row):
-            observations[datetime.strptime(f"{day}/{year}", "%m/%d/%Y").date()] = _number(value)
-    return datetime.strptime(release[1], "%m/%d/%Y").date(), observations
-
-
 def parse_eia_table(content, period):
     rows = csv.reader(io.StringIO(content))
     header = next(rows, [])
@@ -120,35 +102,11 @@ def parse_eia_table(content, period):
 
 
 def _eia(event, day, preliminary):
-    period = date.fromisoformat(event["period"])
-
-    def read_series(item):
-        name, series = item
-        url = f"https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=PET&s={series}&f=W"
-        try:
-            latest, data = parse_eia_series(download(url).text)
-        except (requests.RequestException, ValueError):
-            return name, None, None, url
-        previous = data.get(period - timedelta(days=7))
-        older = data.get(period - timedelta(days=14))
-        current = data.get(period) if latest and latest >= day and not preliminary else None
-        return (name, (current - previous) / 1000 if current is not None and previous is not None else None,
-                (previous - older) / 1000 if previous is not None and older is not None else None, url)
-
-    with ThreadPoolExecutor(max_workers=len(EIA_SERIES) + 1) as pool:
-        table_future = pool.submit(download, EIA_TABLE) if not preliminary else None
-        rows = list(pool.map(read_series, EIA_SERIES.items()))
-        if table_future:
-            try:
-                table = parse_eia_table(table_future.result().text, period)
-            except (requests.RequestException, ValueError):
-                table = {}
-        else:
-            table = {}
-    actual = {key: current for key, current, _, _ in rows if current is not None}
-    previous = {key: prior for key, _, prior, _ in rows if prior is not None}
-    actual.update(table)
-    return Release(actual, EIA_TABLE if table else rows[0][3], previous) if previous or actual else None
+    """Table 4 of the WPSR is published at release time and carries the weekly change."""
+    if preliminary:
+        return None
+    actual = parse_eia_table(download(EIA_TABLE).text, date.fromisoformat(event["period"]))
+    return Release(actual, EIA_TABLE) if actual else None
 
 
 def parse_claims(text, day):
@@ -265,12 +223,12 @@ def fetch_release(event, preliminary=False):
         if kind == "fomc":
             url = f"https://www.federalreserve.gov/newsevents/pressreleases/monetary{day:%Y%m%d}a.htm"
             if preliminary:
-                return Release({}, event["url"], _fed_prior(day))
+                return None
             release = parse_fomc(download(url).text, url)
             if release and not release.previous:
                 try:
                     release.previous = _fed_prior(day)
-                except (requests.RequestException, ValueError):
+                except Exception:
                     pass
             return release
         if preliminary:
@@ -279,21 +237,14 @@ def fetch_release(event, preliminary=False):
             return parse_pce(download(event["url"]).text, day, event["url"])
         if kind in BLS_SERIES:
             series = BLS_SERIES[kind]
-            urls = [f"https://www.bls.gov/news.release/{series}.nr0.htm",
-                    f"https://www.bls.gov/news.release/archives/{series}_{day:%m%d%Y}.htm"]
-            for url in urls:
-                try:
-                    release = parse_bls(download(url).text, kind, url, day)
-                except requests.RequestException:
-                    continue
-                if release:
-                    return release
+            url = f"https://www.bls.gov/news.release/{series}.nr0.htm"
+            return parse_bls(download(url).text, kind, url, day)
         if kind == "claims":
             pdf = PdfReader(io.BytesIO(download(DOL_PDF).content))
             return parse_claims(pdf.pages[0].extract_text(), day) if pdf.pages else None
         if kind == "wasde":
             url = WASDE_URL.format(edition=day.strftime("%m%y"))
             return parse_wasde(download(url).content, day, url)
-    except (requests.RequestException, ValueError, ElementTree.ParseError, PdfReadError, KeyError) as exc:
-        logging.info("Dati %s in attesa: %s", event["id"], type(exc).__name__)
+    except Exception as exc:  # HTTP, timeout, malformed document: the release is not usable yet
+        logging.info("[RELEASE] id=%s waiting error=%s", event["id"], type(exc).__name__)
     return None

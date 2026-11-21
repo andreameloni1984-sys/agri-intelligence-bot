@@ -1,7 +1,10 @@
+import json
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
-from oracle.news import _reuters_crude_consensus, parse_context, parse_te_consensus
+from oracle.consensus import ff_context, parse_ff_value, parse_nowcast, reference_month
+from oracle.news import parse_context
+from tests.fixtures import text
 
 
 class ContextTests(unittest.TestCase):
@@ -17,6 +20,7 @@ class ContextTests(unittest.TestCase):
         context = parse_context(row, self.event, self.stamp - timedelta(minutes=30))
         self.assertEqual(context.consensus, {"crude_mb": -1.5})
         self.assertEqual(context.scenario, {"crude_mb": -4.5})
+        self.assertEqual(context.scenario_source, "example.com")
 
     def test_feed_rejects_forecast_after_release_and_before_its_timestamp(self):
         row = {"event_id": self.event["id"], "source_url": "https://example.com/poll",
@@ -25,17 +29,37 @@ class ContextTests(unittest.TestCase):
         row["as_of"] = "2026-11-18T15:25:00+00:00"
         self.assertFalse(parse_context(row, self.event, self.stamp - timedelta(minutes=30)).consensus)
 
-    def test_provider_requires_exact_event_time_and_unit(self):
-        rows = [{"Country": "United States", "Event": "EIA Crude Oil Stocks Change",
-                 "Date": "2026-11-18T15:30:00", "Forecast": "-1.5M", "Previous": "4.657M", "Actual": "3.38M"},
-                {"Country": "United States", "Event": "EIA Crude Oil Stocks Change",
-                 "Date": "2026-11-25T15:30:00", "Forecast": "8M"}]
-        context = parse_te_consensus(rows, "eia", self.stamp)
-        self.assertEqual(context.consensus, {"crude_mb": -1.5})
-        self.assertEqual(context.previous, {"crude_mb": 4.657})
-        rows[0]["Forecast"] = "15K"
-        self.assertFalse(parse_te_consensus(rows, "eia", self.stamp).consensus)
 
-    def test_reuters_poll_is_recognized_without_treating_actual_as_consensus(self):
-        self.assertEqual(_reuters_crude_consensus("Reuters poll: U.S. crude stocks seen falling by 1.5 million barrels"), -1.5)
-        self.assertIsNone(_reuters_crude_consensus("U.S. crude inventories fell 4 million barrels"))
+class ForexFactoryTests(unittest.TestCase):
+    rows = json.loads(text("forexfactory_week_2026-11-16.json"))
+
+    def test_values_and_units(self):
+        self.assertEqual(parse_ff_value("198K"), 198000)
+        self.assertEqual(parse_ff_value("0.4M"), 0.4)
+        self.assertEqual(parse_ff_value("-0.1%"), -0.1)
+        self.assertIsNone(parse_ff_value(""))
+        self.assertIsNone(parse_ff_value("160.7B"))
+
+    def test_real_week_gives_claims_and_crude_consensus_at_exact_time(self):
+        claims = ff_context(self.rows, "claims", datetime.fromisoformat("2026-11-19T13:30:00+00:00"))
+        self.assertEqual((claims.consensus, claims.previous), ({"claims": 198000}, {"claims": 200000}))
+        crude = ff_context(self.rows, "eia", datetime.fromisoformat("2026-11-18T15:30:00+00:00"))
+        self.assertEqual((crude.consensus, crude.previous), ({"crude_mb": 0.4}, {"crude_mb": 4.7}))
+        self.assertFalse(ff_context(self.rows, "claims", datetime.fromisoformat("2026-11-19T14:30:00+00:00")).consensus)
+
+
+class NowcastTests(unittest.TestCase):
+    charts = json.loads(text("cleveland_nowcast_2026-09_10.json"))
+
+    def test_reference_month_from_official_titles(self):
+        self.assertEqual(reference_month("Consumer Price Index for October 2026"), (2026, 10))
+        self.assertEqual(reference_month("Personal Income and Outlays, September 2026"), (2026, 9))
+
+    def test_uses_last_estimate_published_before_release_day(self):
+        # PCE for September 2026 was released on 2026-10-29.
+        self.assertEqual(parse_nowcast(self.charts, "pce", (2026, 9), date(2026, 10, 29)),
+                         {"headline_mom_pct": 0.5, "core_mom_pct": 0.3})
+        # CPI for October 2026 was released on 2026-11-10.
+        cpi = parse_nowcast(self.charts, "cpi", (2026, 10), date(2026, 11, 10))
+        self.assertEqual(set(cpi), {"headline_mom_pct", "core_mom_pct"})
+        self.assertEqual(parse_nowcast(self.charts, "cpi", (2026, 12), date(2027, 1, 10)), {})
