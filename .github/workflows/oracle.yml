@@ -24,9 +24,9 @@ jobs:
       DB_PATH: data/oracle.sqlite3
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      # BLS rejects requests without a contact e-mail in the User-Agent. Set the
-      # repository variable STELLA_CONTACT_EMAIL to use a different address.
-      STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL || format('{0}@users.noreply.github.com', github.repository_owner) }}
+      # Contact e-mail sent only to BLS/DOL in the User-Agent (repository variable
+      # STELLA_CONTACT_EMAIL). No generated fallback: BLS rejected it in testing.
+      STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

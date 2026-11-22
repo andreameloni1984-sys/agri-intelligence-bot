@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest.mock import patch
 from datetime import date, datetime, timedelta
 
 from oracle.consensus import ff_context, parse_ff_value, parse_nowcast, reference_month
@@ -63,3 +64,14 @@ class NowcastTests(unittest.TestCase):
         cpi = parse_nowcast(self.charts, "cpi", (2026, 10), date(2026, 11, 10))
         self.assertEqual(set(cpi), {"headline_mom_pct", "core_mom_pct"})
         self.assertEqual(parse_nowcast(self.charts, "cpi", (2026, 12), date(2027, 1, 10)), {})
+
+
+class UserAgentTests(unittest.TestCase):
+    def test_contact_only_for_bls_and_dol(self):
+        from oracle import net
+        with patch.object(net, "CONTACT_USER_AGENT", "Stella-Rossa/1.0 (contact: x@y.z)"):
+            self.assertIn("contact", net.user_agent_for("https://www.bls.gov/schedule/2026/home.htm"))
+            self.assertIn("contact", net.user_agent_for("https://www.dol.gov/ui/data.pdf"))
+            self.assertNotIn("contact", net.user_agent_for("https://nfs.faireconomy.media/ff_calendar_thisweek.json"))
+            self.assertNotIn("contact", net.user_agent_for("https://query1.finance.yahoo.com/v8/finance/chart/GC=F"))
+            self.assertNotIn("contact", net.user_agent_for("https://evilbls.gov.example.com/"))

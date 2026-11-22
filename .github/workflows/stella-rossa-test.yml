@@ -1,5 +1,9 @@
 name: Stella Rossa - test e replay
 on:
+  push:
+    # Verifica dai server di GitHub prima del merge (solo questo branch).
+    branches: [claude/commodities-analysis-bot-chat-cywpjt]
+    paths: [".github/workflows/stella-rossa-test.yml", "oracle/**"]
   workflow_dispatch:
     inputs:
       send_telegram_test:
@@ -15,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL || format('{0}@users.noreply.github.com', github.repository_owner) }}
+      STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -31,7 +35,7 @@ jobs:
           DB_PATH: ${{ runner.temp }}/stella-test.sqlite3
         run: python -m oracle.main --dry-run
       - name: Telegram TEST message
-        if: inputs.send_telegram_test
+        if: github.event_name == 'push' || inputs.send_telegram_test
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
