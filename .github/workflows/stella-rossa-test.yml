@@ -3,7 +3,7 @@ on:
   push:
     # Verifica dai server di GitHub prima del merge (solo questo branch).
     branches: [claude/commodities-analysis-bot-chat-cywpjt]
-    paths: [".github/workflows/stella-rossa-test.yml", "oracle/**"]
+    paths: [".github/workflows/stella-rossa-test.yml", "oracle/**", "tests/**"]
   workflow_dispatch:
     inputs:
       send_telegram_test:
