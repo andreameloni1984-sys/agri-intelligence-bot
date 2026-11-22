@@ -64,3 +64,32 @@ class EconomicAnalysisTests(unittest.TestCase):
         context.scenario["crude_mb"] = -3
         self.assertEqual(interpret("eia", release, context, True).directions["WTI"], "LONG")
         self.assertEqual(interpret("eia", release, context).directions["WTI"], "SHORT")
+
+    def test_preliminary_cpi_uses_nowcast_against_consensus(self):
+        context = Context(consensus={"headline_mom_pct": 0.3, "core_mom_pct": 0.3},
+                          scenario={"headline_mom_pct": 0.2, "core_mom_pct": 0.2},
+                          scenario_source="Nowcast Fed Cleveland")
+        result = interpret("cpi", Release({}, "https://bls.gov"), context, preliminary=True)
+        self.assertEqual(result.directions, {"Gold": "LONG", "Platinum": "LONG"})
+        self.assertTrue(result.reason.startswith("Stima Nowcast Fed Cleveland"))
+        context.scenario = {"headline_mom_pct": 0.3, "core_mom_pct": 0.3}
+        self.assertEqual(set(interpret("cpi", Release({}, "u"), context, True).directions.values()), {UNKNOWN})
+
+    def test_preliminary_without_estimate_is_not_a_direction(self):
+        result = interpret("claims", Release({}, "u"), Context(consensus={"claims": 198000}), preliminary=True)
+        self.assertEqual(result.directions, {"Gold": UNKNOWN, "Copper": UNKNOWN})
+        self.assertIn("Previsione non disponibile", result.reason)
+
+    def test_any_nonzero_surprise_counts_without_minimum_threshold(self):
+        result = interpret("claims", Release({"claims": 198001}, "u"), Context(consensus={"claims": 198000}))
+        self.assertEqual(result.directions, {"Gold": "LONG", "Copper": "SHORT"})
+
+
+class OutcomeTests(unittest.TestCase):
+    def test_momentary_move_is_not_a_correct_forecast(self):
+        from oracle.prices import outcome
+        path = {"signal": 100, "5m": 101, "15m": 101, "30m": 99, "60m": 98}
+        self.assertEqual(outcome("LONG", path), "ERRATA")
+        self.assertEqual(outcome("LONG", {**path, "60m": 101}), "INCERTA")
+        self.assertEqual(outcome("SHORT", path), "CORRETTA")
+        self.assertEqual(outcome("SHORT", {**path, "60m": None}), "PREZZI MANCANTI")

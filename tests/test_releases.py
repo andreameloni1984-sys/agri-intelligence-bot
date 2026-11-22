@@ -1,7 +1,11 @@
+import io
 import unittest
 from datetime import date
 
+from pypdf import PdfReader
+
 from oracle.releases import parse_bls, parse_claims, parse_eia_table, parse_fomc, parse_pce, parse_wasde
+from tests.fixtures import raw, text
 
 
 class HistoricalReleaseTests(unittest.TestCase):
@@ -62,3 +66,39 @@ Distillate Fuel Oil,104.901,103.330,1.571"""
         self.assertEqual(release.actual, {"Wheat": 743})
         self.assertEqual(release.previous, {"Wheat": 740})
         self.assertIsNone(parse_wasde(xml, date(2026, 12, 10), "https://usda.gov"))
+
+
+class OfficialReleaseFixtureTests(unittest.TestCase):
+    """Real releases downloaded from the agencies on 2026-11-21."""
+
+    def test_cpi_october_2026(self):
+        release = parse_bls(text("bls_cpi_2026-11-10.txt"), "cpi", "u", date(2026, 11, 10))
+        self.assertEqual(release.actual, {"headline_mom_pct": 0.4, "core_mom_pct": 0.3})
+        self.assertEqual(release.previous, {"headline_mom_pct": 0.6})
+
+    def test_ppi_october_2026(self):
+        release = parse_bls(text("bls_ppi_2026-11-13.txt"), "ppi", "u", date(2026, 11, 13))
+        self.assertEqual(release.actual["headline_mom_pct"], 0.3)
+
+    def test_employment_october_2026_with_revisions_and_unemployment(self):
+        release = parse_bls(text("bls_empsit_2026-11-06.txt"), "nfp", "u", date(2026, 11, 6))
+        self.assertEqual(release.actual["payrolls"], 165000)
+        self.assertIn("unemployment_pct", release.actual)
+        self.assertEqual(release.revised["payrolls"], 60000)
+
+    def test_claims_november_19_2026_from_official_pdf(self):
+        page = PdfReader(io.BytesIO(raw("dol_claims_2026-11-19.pdf"))).pages[0].extract_text()
+        release = parse_claims(page, date(2026, 11, 19))
+        self.assertEqual((release.actual, release.previous, release.revised),
+                         ({"claims": 203000}, {"claims": 200000}, {"claims": 202000}))
+        self.assertIsNone(parse_claims(page, date(2026, 11, 25)))
+
+    def test_eia_fomc_pce_wasde(self):
+        self.assertEqual(parse_eia_table(text("eia_table4_2026-11-18.csv"), date(2026, 11, 13)),
+                         {"crude_mb": 3.38, "gasoline_mb": 5.193, "distillates_mb": 1.571})
+        self.assertEqual(parse_fomc(text("fomc_2026-10-28.txt"), "u").actual, {"upper_pct": 4.0, "lower_pct": 3.75})
+        self.assertEqual(parse_pce(text("bea_pce_2026-10-29.txt"), date(2026, 10, 29), "u").actual,
+                         {"headline_mom_pct": 0.5, "core_mom_pct": 0.3})
+        wasde = parse_wasde(raw("wasde_2026-11.xml"), date(2026, 11, 10), "u")
+        self.assertEqual(wasde.actual, {"Wheat": 743, "Corn": 1758, "Soybeans": 300})
+        self.assertEqual(wasde.previous, {"Wheat": 740, "Corn": 1849, "Soybeans": 315})

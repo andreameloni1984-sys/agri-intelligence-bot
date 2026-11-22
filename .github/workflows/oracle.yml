@@ -1,9 +1,12 @@
 name: Stella Rossa - calendario USA (GitHub Actions)
 on:
   schedule:
-    # UTC; event timestamps are converted by the Python calendar logic.
-    # A lightweight check every 10 minutes; full analysis only near events.
-    - cron: "3,13,23,33,43,53 * * * *"
+    # UTC, weekdays. Every covered release (08:30-14:00 New York time, with the
+    # 30-minute preview and the 60-minute price check) falls inside 11:00-21:59 UTC
+    # in both winter and summer time. A run that finds a check due within 45
+    # minutes stays alive and polls the agency every 15 s, so irregular cron
+    # starts do not delay the notification.
+    - cron: "3,13,23,33,43,53 11-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -16,18 +19,22 @@ concurrency:
 jobs:
   calendar:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 90
     env:
       DB_PATH: data/oracle.sqlite3
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Contact e-mail sent only to BLS/DOL in the User-Agent (repository variable
+      # STELLA_CONTACT_EMAIL). No generated fallback: BLS rejected it in testing.
+      STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      - name: Restore calendar and Telegram deduplication state
+          cache-dependency-path: requirements.txt
+      - name: Restore calendar, journal and Telegram deduplication state
         uses: actions/cache/restore@v4
         with:
           path: data/oracle.sqlite3
@@ -35,16 +42,19 @@ jobs:
           restore-keys: |
             stella-calendar-v1-
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
       - name: Check Telegram configuration
         run: |
           test -n "$TELEGRAM_BOT_TOKEN" && test -n "$TELEGRAM_CHAT_ID" || {
             echo "::error::Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secrets"
             exit 1
           }
-      - name: Check official calendar and analyze only active event windows
-        run: python -m oracle.main
-      - name: Save calendar and Telegram deduplication state
+      - name: Official calendar, previews, published data and journal
+        run: python -m oracle.main --loop-minutes 75
+      - name: Journal statistics
+        if: always()
+        run: python -m oracle.journal
+      - name: Save calendar, journal and Telegram deduplication state
         if: always()
         uses: actions/cache/save@v4
         with:
