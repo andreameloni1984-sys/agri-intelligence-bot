@@ -6,7 +6,8 @@ on:
     # in both winter and summer time. A run that finds a check due within 45
     # minutes stays alive and polls the agency every 15 s, so irregular cron
     # starts do not delay the notification.
-    - cron: "3,13,23,33,43,53 11-21 * * 1-5"
+    # Riserva oraria: la sveglia Cloudflare lo avvia ogni 10 minuti.
+    - cron: "7 11-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
