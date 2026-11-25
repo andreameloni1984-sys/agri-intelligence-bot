@@ -43,7 +43,9 @@ def outcome(direction, path):
     return "INCERTA"
 
 
-def evaluate(directions, signal_at):
+def evaluate(directions, signal_at, levels=None):
+    from .levels import outcome as tp_sl_outcome
+    levels = levels or {}
     result = {}
     for asset, direction in directions.items():
         if direction not in {"LONG", "SHORT"} or asset not in SYMBOLS:
@@ -58,4 +60,6 @@ def evaluate(directions, signal_at):
         for minutes in HORIZONS:
             path[f"{minutes}m"] = price_at(bars, signal_at + timedelta(minutes=minutes))
         result[asset] = {"direction": direction, "prices": path, "outcome": outcome(direction, path)}
+        if asset in levels:
+            result[asset]["tp_sl"] = tp_sl_outcome(direction, levels[asset], bars, signal_at)
     return result

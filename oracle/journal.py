@@ -7,10 +7,20 @@ from .main import POST_WINDOW
 
 
 def _calls(entries, phase):
-    outcomes = [row["outcome"] for entry in entries
-                for row in entry.get(phase, {}).get("evaluation", {}).values() if isinstance(row, dict)]
+    rows = [row for entry in entries
+            for row in entry.get(phase, {}).get("evaluation", {}).values() if isinstance(row, dict)]
+    outcomes = [row["outcome"] for row in rows]
     correct, wrong = outcomes.count("CORRETTA"), outcomes.count("ERRATA")
+    trades = [row["tp_sl"] for row in rows if row.get("tp_sl")]
     return {
+        "con_stop_e_take_profit": {
+            "operazioni": len(trades),
+            "take_profit": sum(t["exit"] == "TP" for t in trades),
+            "stop_loss": sum(t["exit"] == "SL" for t in trades),
+            "chiuse_a_60_minuti": sum(t["exit"] == "60 MIN" for t in trades),
+            "risultato_totale_R": round(sum(t["r"] for t in trades), 2),
+            "risultato_totale_eur": round(sum(t.get("eur", 0) for t in trades), 2),
+        },
         "valutate": len(outcomes), "corrette": correct, "errate": wrong,
         "incerte": outcomes.count("INCERTA"), "prezzi_mancanti": outcomes.count("PREZZI MANCANTI"),
         "direzioni_corrette_pct": round(100 * correct / (correct + wrong), 1) if correct + wrong else None,

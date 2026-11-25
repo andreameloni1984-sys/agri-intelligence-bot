@@ -23,6 +23,22 @@ from oracle.journal import stats
 from oracle.main import run
 from tests.fixtures import raw, text
 
+
+_no_levels = None
+
+
+def setUpModule():
+    # Stop loss / take profit need live prices: tested in test_levels.py, not here.
+    global _no_levels
+    from unittest.mock import patch as _patch
+    _no_levels = _patch("oracle.main.plan_levels", return_value={})
+    _no_levels.start()
+
+
+def tearDownModule():
+    _no_levels.stop()
+
+
 EIA = datetime(2026, 11, 18, 15, 30, tzinfo=timezone.utc)
 CLAIMS = datetime(2026, 11, 19, 13, 30, tzinfo=timezone.utc)
 
