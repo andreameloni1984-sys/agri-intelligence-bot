@@ -102,17 +102,30 @@ class SchedulerTests(unittest.TestCase):
         main(self.stamp + timedelta(seconds=30))
         self.assertEqual(self.telegram.call_count, 1)
 
-    def test_prices_are_recorded_61_minutes_after_signal(self):
+    def test_prices_are_recorded_75_minutes_after_signal(self):
+        # Yahoo pubblica i prezzi dei future con 10-15 minuti di ritardo
         self.release.return_value = Release({"crude_mb": 3.38}, "https://eia.gov")
         main(self.stamp)
         self.prices.return_value = {"WTI": {"outcome": "CORRETTA"}}
-        self.assertLessEqual(main(self.stamp + timedelta(minutes=30)), 31 * 60)
-        self.prices.assert_not_called()
+        self.assertLessEqual(main(self.stamp + timedelta(minutes=30)), 46 * 60)
         main(self.stamp + timedelta(minutes=61))
+        self.prices.assert_not_called()
+        main(self.stamp + timedelta(minutes=75))
         self.prices.assert_called_once()
         self.assertEqual(storage.journal_entries()[0]["published"]["evaluation"], {"WTI": {"outcome": "CORRETTA"}})
-        main(self.stamp + timedelta(minutes=70))
+        main(self.stamp + timedelta(minutes=90))
         self.prices.assert_called_once()
+
+    def test_missing_prices_are_retried_then_recorded(self):
+        self.release.return_value = Release({"crude_mb": 3.38}, "https://eia.gov")
+        main(self.stamp)
+        self.prices.return_value = {"WTI": {"outcome": "PREZZI MANCANTI"}}
+        main(self.stamp + timedelta(minutes=75))
+        self.assertNotIn("evaluation", storage.journal_entries()[0]["published"])
+        self.prices.return_value = {"WTI": {"outcome": "ERRATA"}}
+        main(self.stamp + timedelta(minutes=105))
+        self.assertEqual(storage.journal_entries()[0]["published"]["evaluation"], {"WTI": {"outcome": "ERRATA"}})
+        self.assertEqual(self.prices.call_count, 2)
 
     def test_dry_run_does_not_call_telegram(self):
         self.release.return_value = Release({"crude_mb": 3.38}, "https://eia.gov")

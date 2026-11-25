@@ -50,6 +50,18 @@ PATTERNS = (
 # Words that make the headline about the official report, not the API survey.
 EIA_WORDS = re.compile(r"\bEIA\b|Energy Information Administration|government data|official data", re.I)
 API_WORDS = re.compile(r"\bAPI\b|American Petroleum Institute|reportedly|industry data|industry group", re.I)
+# Headlines without a figure ("API Shows Sharp Build in US Crude Oil Inventories"): direction only.
+_STOCKS = r"(?:stockpiles|stocks|inventories|inventory|supplies)"
+DIRECTION_PATTERNS = (
+    # "crude inventories rise", "oil stocks fell"
+    re.compile(rf"\b(?:crude|oil)\b[\w\s.-]{{0,30}}?\b{_STOCKS}\b(?:\s+\w+){{0,2}}?\s+(?P<dir>{UP_WORDS}|{DOWN_WORDS})\b", re.I),
+    # "build in US crude oil inventories", "draw in crude stocks"
+    re.compile(rf"\b(?P<dir>{UP_WORDS}|{DOWN_WORDS})\s+in\s+(?:\w+\s+){{0,3}}?(?:crude|oil|{_STOCKS})\b", re.I),
+    # "API reports crude draw", "surprise crude build"
+    re.compile(r"\b(?:crude|oil)\s+(?:stock\s+|inventory\s+)?(?P<dir>build|builds|draw|draws|drawdown)\b", re.I),
+)
+# A figure-less headline is used only if no headline with a number shows up within this delay.
+QUALITATIVE_AFTER = timedelta(minutes=45)
 
 
 def release_time(rows, now):
@@ -96,6 +108,17 @@ def parse_headline(title):
     return None
 
 
+def parse_direction(title):
+    """+1 (stocks up) or -1 (stocks down) from an API headline without a figure, or None."""
+    if EIA_WORDS.search(title) or not API_WORDS.search(title):
+        return None
+    for pattern in DIRECTION_PATTERNS:
+        match = pattern.search(title)
+        if match:
+            return -1 if re.fullmatch(DOWN_WORDS, match["dir"], re.I) else 1
+    return None
+
+
 def parse_feed(xml_text):
     items = []
     for item in ET.fromstring(xml_text).iter("item"):
@@ -108,6 +131,18 @@ def parse_feed(xml_text):
         items.append({"title": headline or title, "publisher": publisher if headline else "",
                       "published": published})
     return items
+
+
+def find_direction(items, release, now):
+    """Direction (+1/-1) from figure-less API headlines, once QUALITATIVE_AFTER has passed."""
+    if now - release < QUALITATIVE_AFTER:
+        return None
+    found = sorted(((item["published"], d, item) for item in items
+                    if release <= item["published"] <= release + WINDOW
+                    for d in [parse_direction(item["title"])] if d), key=lambda x: x[0])
+    if not found or len({d for _, d, _ in found[:3]}) > 1:
+        return None
+    return found[0][1], found[0][2]
 
 
 def find_figure(items, release):
@@ -144,10 +179,30 @@ def _mb(value):
     return f"{value:+.1f} milioni di barili"
 
 
-def format_message(value, forecast, previous, item, release, eia_time):
+def _direction_lines(direction, forecast, previous):
+    """Figure-less headline: a direction only when it is opposite to the forecast."""
+    word = "in aumento" if direction > 0 else "in calo"
+    lines = [f"🛢️ API: scorte di greggio USA {word} (il titolo non riporta la cifra)"]
+    if forecast is None:
+        return lines + ["", "⚪ Previsione EIA non disponibile: nessuna direzione"]
+    lines.append(f"📋 Previsione per il dato EIA: {_mb(forecast)}"
+                 + (f" (settimana scorsa {_mb(previous)})" if previous is not None else ""))
+    lines.append("")
+    if direction > 0 and forecast <= 0:
+        return lines + ["➡️ Le attese erano di un calo, l'API dice aumento: probabile EIA sopra le attese",
+                        "🥇 WTI — ⬇️ SHORT", "🥈 BRENT — ⬇️ SHORT"]
+    if direction < 0 and forecast >= 0:
+        return lines + ["➡️ Le attese erano di un aumento, l'API dice calo: probabile EIA sotto le attese",
+                        "🥇 WTI — ⬆️ LONG", "🥈 BRENT — ⬆️ LONG"]
+    return lines + ["➡️ Stesso verso delle attese ma senza cifra non si sa se è più o meno: nessuna direzione"]
+
+
+def format_message(value, forecast, previous, item, release, eia_time, exact=True):
     lines = ["🔴 STELLA ROSSA — SCORTE API (anticipo del dato EIA)", ""]
-    lines.append(f"🛢️ API: scorte di greggio USA {_mb(value)}")
-    if forecast is not None:
+    if not exact:
+        lines += _direction_lines(value, forecast, previous)
+    elif forecast is not None:
+        lines.append(f"🛢️ API: scorte di greggio USA {_mb(value)}")
         surprise = value - forecast
         lines.append(f"📋 Previsione per il dato EIA: {_mb(forecast)}"
                      + (f" (settimana scorsa {_mb(previous)})" if previous is not None else ""))
@@ -161,7 +216,8 @@ def format_message(value, forecast, previous, item, release, eia_time):
         else:
             lines += ["➡️ In linea con le attese (scarto sotto 1 milione di barili): nessuna direzione"]
     else:
-        lines += ["", "⚪ Previsione EIA non disponibile: nessuna direzione"]
+        lines += [f"🛢️ API: scorte di greggio USA {_mb(value)}", "",
+                  "⚪ Previsione EIA non disponibile: nessuna direzione"]
     lines.append("")
     if eia_time:
         lines.append(f"🕒 Dato ufficiale EIA: {eia_time.astimezone(ROME):%A %d/%m %H:%M} Italia".replace(
@@ -187,20 +243,23 @@ def run(now=None, rows=None, items=None, send=send_telegram, dry_run=False):
     if key in sent:
         logging.info("[API] already sent for %s", key)
         return None
-    found = find_figure(fetch_items() if items is None else items, release)
+    items = fetch_items() if items is None else items
+    found, exact = find_figure(items, release), True
+    if not found:
+        found, exact = find_direction(items, release, now), False
     if not found:
         logging.info("[API] figure not in the news yet")
         return None
     value, item = found
     eia_time, forecast, previous = eia_forecast(rows, release)
-    message = format_message(value, forecast, previous, item, release, eia_time)
+    message = format_message(value, forecast, previous, item, release, eia_time, exact)
     if dry_run:
         print(message)
         return message
     delivery = send(message)
     logging.info("[API] value=%s forecast=%s delivery=%s", value, forecast, delivery)
     if delivery in ("delivered", "rejected", "unknown"):
-        sent[key] = {"value": value, "forecast": forecast, "at": now.isoformat(), "delivery": delivery}
+        sent[key] = {"value": value, "exact": exact, "forecast": forecast, "at": now.isoformat(), "delivery": delivery}
         storage.save("api_inventories", dict(sorted(sent.items())[-30:]))
     return message
 

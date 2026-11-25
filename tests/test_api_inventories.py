@@ -32,6 +32,18 @@ class HeadlineTests(unittest.TestCase):
                       "Crude oil inventories +4.657 million versus -1.109 million estimate"):
             self.assertIsNone(api.parse_headline(title), title)
 
+    def test_direction_without_figure(self):
+        cases = {
+            "API Shows Sharp Build in US Crude Oil, Distillate Inventories": 1,
+            "Oil prices rise after API reports surprise crude draw": -1,
+            "US crude inventories fall, API says": -1,
+        }
+        for title, direction in cases.items():
+            self.assertEqual(api.parse_direction(title), direction, title)
+        for title in ("EIA Data Shows Builds in Crude, Gasoline and Distillates",
+                      "Oil prices rise ahead of API data"):
+            self.assertIsNone(api.parse_direction(title), title)
+
     def test_feed_parsing_splits_publisher(self):
         xml = ("<rss><channel><item><title>U.S. crude stockpiles rose 5.3M barrels last week, API says "
                "- Seeking Alpha</title><pubDate>Tue, 17 Nov 2026 23:11:00 GMT</pubDate></item></channel></rss>")
@@ -95,6 +107,26 @@ class RunTests(unittest.TestCase):
         items = [item("U.S. crude stockpiles rose 5.3M barrels last week, API says", self.release + timedelta(minutes=20)),
                  item("US oil inventories reportedly down 5.3M barrels", self.release + timedelta(minutes=25))]
         self.assertIsNone(api.run(self.release + timedelta(minutes=30), self.rows, items, send=self.fail))
+
+    def test_figureless_headline_waits_then_sends_direction(self):
+        items = [item("API Shows Draw in US Crude Oil Inventories", self.release + timedelta(minutes=10))]
+        self.assertIsNone(api.run(self.release + timedelta(minutes=30), self.rows, items, send=self.fail))
+        message = api.run(self.release + timedelta(minutes=50), self.rows, items, send=lambda m: "delivered")
+        self.assertIn("in calo (il titolo non riporta la cifra)", message)
+        self.assertIn("WTI — ⬆️ LONG", message)   # forecast +0.4: a draw goes against it
+
+    def test_figureless_same_direction_as_forecast_gives_no_direction(self):
+        items = [item("API Shows Sharp Build in US Crude Oil, Distillate Inventories",
+                      self.release + timedelta(minutes=10))]
+        message = api.run(self.release + timedelta(minutes=50), self.rows, items, send=lambda m: "delivered")
+        self.assertIn("nessuna direzione", message)
+        self.assertNotIn("SHORT", message)
+
+    def test_figure_beats_figureless_headline(self):
+        items = [item("API Shows Sharp Build in US Crude Oil Inventories", self.release + timedelta(minutes=5)),
+                 item("U.S. crude stockpiles rose 5.3M barrels last week, API says", self.release + timedelta(minutes=40))]
+        message = api.run(self.release + timedelta(minutes=50), self.rows, items, send=lambda m: "delivered")
+        self.assertIn("+5.3 milioni", message)
 
     def test_failed_delivery_retries(self):
         items = [item("U.S. crude stockpiles rose 5.3M barrels last week, API says", self.release + timedelta(minutes=20))]
