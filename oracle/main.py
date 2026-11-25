@@ -29,7 +29,11 @@ from .releases import fetch_release
 
 PRE_WINDOW = timedelta(minutes=30)
 POST_WINDOW = timedelta(hours=2)
-PRICE_DELAY = timedelta(minutes=max(HORIZONS) + 1)
+# Yahoo pubblica i prezzi dei future con circa 10-15 minuti di ritardo: si valuta dopo 75 minuti
+# e, se qualche prezzo manca ancora, si riprova ogni 30 minuti per qualche ora.
+PRICE_DELAY = timedelta(minutes=max(HORIZONS) + 15)
+PRICE_RETRY = timedelta(minutes=30)
+PRICE_RETRY_LIMIT = timedelta(hours=6)
 PRICE_EXPIRY = timedelta(days=6)  # Yahoo keeps 1-minute bars for about a week
 STAY_ALIVE = timedelta(minutes=45)
 
@@ -135,8 +139,15 @@ def _evaluate_prices(now):
             if now < sent + PRICE_DELAY:
                 next_due = min(filter(None, (next_due, sent + PRICE_DELAY)))
                 continue
-            item["evaluation"] = (evaluate(item["directions"], sent) if now - sent < PRICE_EXPIRY
-                                  else {"error": "prezzi a 1 minuto non più disponibili"})
+            evaluation = (evaluate(item["directions"], sent) if now - sent < PRICE_EXPIRY
+                          else {"error": "prezzi a 1 minuto non più disponibili"})
+            missing = any(isinstance(row, dict) and row.get("outcome") == "PREZZI MANCANTI"
+                          for row in evaluation.values())
+            if missing and now - sent < PRICE_RETRY_LIMIT:
+                logging.info("[JOURNAL] id=%s phase=%s prezzi ancora mancanti: riprovo", entry["event_id"], phase)
+                next_due = min(filter(None, (next_due, now + PRICE_RETRY)))
+                continue
+            item["evaluation"] = evaluation
             storage.journal_update(entry["event_id"], entry["event_time"], **{phase: item})
             logging.info("[JOURNAL] id=%s phase=%s evaluation=%s", entry["event_id"], phase,
                          json.dumps(item["evaluation"], sort_keys=True))
