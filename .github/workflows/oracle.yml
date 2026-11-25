@@ -28,6 +28,9 @@ jobs:
       # Contact e-mail sent only to BLS/DOL in the User-Agent (repository variable
       # STELLA_CONTACT_EMAIL). No generated fallback: BLS rejected it in testing.
       STELLA_CONTACT_EMAIL: ${{ vars.STELLA_CONTACT_EMAIL }}
+      # Euro amounts in the messages: account size (default 200) and % risked per signal (default 2).
+      ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE }}
+      RISK_PCT: ${{ vars.RISK_PCT }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

@@ -9,6 +9,22 @@ from oracle.models import Context, Release
 from oracle.notify import send_telegram
 
 
+_no_levels = None
+
+
+def setUpModule():
+    # Stop loss / take profit need live prices: tested in test_levels.py, not here.
+    global _no_levels
+    from unittest.mock import patch as _patch
+    _no_levels = _patch("oracle.main.plan_levels", return_value={})
+    _no_levels.start()
+
+
+def tearDownModule():
+    _no_levels.stop()
+
+
+
 class SchedulerTests(unittest.TestCase):
     def setUp(self):
         directory = self.enterContext(TemporaryDirectory())

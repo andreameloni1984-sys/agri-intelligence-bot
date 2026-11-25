@@ -23,6 +23,7 @@ from .analysis import UNKNOWN, interpret
 from .calendar import fetch_economic_calendar
 from .models import EVENTS, Context, Release, event_kind
 from .news import fetch_context
+from .levels import plan as plan_levels
 from .notify import format_message, send_telegram
 from .prices import HORIZONS, evaluate
 from .releases import fetch_release
@@ -109,7 +110,8 @@ def _process(event, stamp, now, dry_run):
     analysis = interpret(kind, release, context, preliminary)
     source = " | ".join(dict.fromkeys([event["url"], *context.urls])) if preliminary else release.url
     payload = {"release": asdict(release), "context": asdict(context), "analysis": asdict(analysis)}
-    message = format_message(event, analysis, source, preliminary)
+    levels = plan_levels(analysis.directions) if not dry_run else {}
+    message = format_message(event, analysis, source, preliminary, levels=levels)
     delivery = _deliver(event, phase, message, payload, now, dry_run)
     logging.info("[EVENT] id=%s phase=%s directions=%s telegram=%s", event_id, phase,
                  json.dumps(analysis.directions, sort_keys=True), delivery)
@@ -118,7 +120,7 @@ def _process(event, stamp, now, dry_run):
     storage.save(done_key, True)
     storage.journal_update(event_id, event["date_utc"], **{phase: {
         "sent_at": now.isoformat(), "delivery": delivery, "delay_s": round((now - stamp).total_seconds()),
-        "directions": analysis.directions, "reason": analysis.reason, "source": source,
+        "directions": analysis.directions, "reason": analysis.reason, "source": source, "levels": levels,
         "data": {"actual": release.actual, "previous": {**context.previous, **release.previous},
                  "revised": release.revised, "consensus": context.consensus,
                  "scenario": context.scenario, "scenario_source": context.scenario_source},
@@ -139,7 +141,7 @@ def _evaluate_prices(now):
             if now < sent + PRICE_DELAY:
                 next_due = min(filter(None, (next_due, sent + PRICE_DELAY)))
                 continue
-            evaluation = (evaluate(item["directions"], sent) if now - sent < PRICE_EXPIRY
+            evaluation = (evaluate(item["directions"], sent, item.get("levels")) if now - sent < PRICE_EXPIRY
                           else {"error": "prezzi a 1 minuto non più disponibili"})
             missing = any(isinstance(row, dict) and row.get("outcome") == "PREZZI MANCANTI"
                           for row in evaluation.values())
