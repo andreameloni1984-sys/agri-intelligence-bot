@@ -35,7 +35,7 @@ jobs:
           DB_PATH: ${{ runner.temp }}/stella-test.sqlite3
         run: python -m oracle.main --dry-run
       - name: Telegram TEST message
-        if: github.event_name == 'push' || inputs.send_telegram_test
+        if: inputs.send_telegram_test  # solo su richiesta, non a ogni salvataggio
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
